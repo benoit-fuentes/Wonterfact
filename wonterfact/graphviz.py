@@ -155,10 +155,11 @@ def _draw_tree(
     fileformat=None,
     filename=None,
     legend_dict=None,
-    prior_nodes=False,
+    show_prior_nodes=False,
     view=True,
     show_node_names=False,
     integer_observations=False,
+    show_root=False
 ):
     if tree.current_iter == 0:
         tree._first_iteration(check_model_validity=False)
@@ -169,6 +170,8 @@ def _draw_tree(
     if suffix:
         fileformat = suffix[1:]
     filename = filename.with_suffix("")
+
+    # legend setup
     legend_dict = legend_dict or {}
     all_index_id = set.union(
         *(set(node.index_id) for node in tree.census() if hasattr(node, "index_id"))
@@ -203,11 +206,15 @@ def _draw_tree(
             if "description" not in legend_dict[index_id] and letter != index_id:
                 legend_dict[index_id]["description"] = index_id
 
+    # graph drawing
     graph = graphviz.Digraph(
         name=tree.name, format=fileformat, filename=filename, engine="dot"
     )
     graph.attr("node", color="#0b51c3f2", fontname="Times-Roman", height="0")
     graph.attr("edge", color="#0b51c3f2", arrowhead="none", fontname="Times-Roman")
+    
+    
+    # draw all nodes
     for node in tree.census():
         xlabel = _html(_small_font(node.name)) if show_node_names else None
 
@@ -234,21 +241,22 @@ def _draw_tree(
                 """</table>>"""
             )
             # node_label = ""
-            graph.node(
-                str(id(node)),
-                label=node_label,
-                shape="plain",
-                peripheries="0",
-                xlabel=xlabel,
-                forcelabels="true",
-                # image="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.svg",
-                # shape="epsf",
-                # shapefile="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.ps",
-            )
+            if show_root:
+                graph.node(
+                    str(id(node)),
+                    label=node_label,
+                    shape="plain",
+                    peripheries="0",
+                    xlabel=xlabel,
+                    forcelabels="true",
+                    # image="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.svg",
+                    # shape="epsf",
+                    # shapefile="/home/fuentes/Projects/wonterfact/wonterfact/images/ground.ps",
+                )
+        # special label for blind observers
         elif isinstance(node, observers.BlindObs):
             node_label = _make_node_label("", "?", True)
             with graph.subgraph(name="observers") as subg:
-                subg.attr(rank="same")
                 subg.node(
                     str(id(node)),
                     label=node_label,
@@ -267,7 +275,7 @@ def _draw_tree(
             #     peripheries="2",
             #     xlabel=xlabel,
             # )
-        # all nodes except root
+        # all other nodes
         else:
             # let us compute node_label
             if not node.index_id:
@@ -295,7 +303,8 @@ def _draw_tree(
             # special shape for observers
             if isinstance(node, observers._Observer):
                 with graph.subgraph(name="observers") as subg:
-                    subg.attr(rank="same")
+                    if show_root:
+                        subg.attr(rank="same")
                     subg.node(
                         str(id(node)),
                         label=node_label,
@@ -312,7 +321,7 @@ def _draw_tree(
                     peripheries = "2"
                 else:
                     peripheries = "1"
-                if prior_nodes:
+                if show_prior_nodes:
                     graph.node(
                         str(id(node)),
                         label=node_label,
@@ -336,14 +345,19 @@ def _draw_tree(
                     xlabel=xlabel,
                     forcelabels="true",
                 )
+
+    # draw all edges
     for node in tree.census():
-        if node != tree:
-            if node.level != 0 or prior_nodes:
-                for child in node.list_of_children:
-                    edge_label = _get_edge_label(node, child, legend_dict)
-                    if edge_label:
-                        edge_label = _html(_small_font(edge_label))
-                    graph.edge(str(id(node)), str(id(child)), taillabel=edge_label)
+        if node == tree:
+            pass
+        elif node.level != 0 or show_prior_nodes:
+            for child in node.list_of_children:
+                edge_label = _get_edge_label(node, child, legend_dict)
+                if edge_label:
+                    edge_label = _html(_small_font(edge_label))
+                linestyle = 'dotted' if node.level==0 or isinstance(child, observers._Observer) else 'solid'
+                if child != tree or show_root:
+                    graph.edge(str(id(node)), str(id(child)), taillabel=edge_label, style=linestyle)
 
     if any("description" in idx_dict for idx_dict in legend_dict.values()):
         label_legend = (
@@ -359,16 +373,16 @@ def _draw_tree(
                     "</TR>".format(idx_dict["letter"], idx_dict["description"])
                 )
         label_legend = label_legend + "</TABLE>"
-        with graph.subgraph(name="observers") as subgraph:
-            subgraph.attr(rank="same")
-            subgraph.node(
+        subg_name, rank = ("observers", "same") if show_root else ('legend', 'max')
+        with graph.subgraph(name=subg_name) as subg:
+            subg.attr(rank=rank)
+            subg.node(
                 "legend",
                 label=_html(label_legend),
                 shape="box",
                 # fontsize='8',
-                style="dotted",
+                style="dashed",
             )
-
     if view:
         graph.view(cleanup=True)
     else:

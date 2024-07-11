@@ -43,7 +43,7 @@ def make_snmf(
     integer_data=False,
 ):
     """
-    This return a wonterfact tree corresponding to the Skellam-SNMF algorithm.
+    Return a wonterfact tree corresponding to the Skellam-SNMF algorithm.
 
     Parameters
     ----------
@@ -81,13 +81,13 @@ def make_snmf(
     .. math::
         X_{ji} \\approx \\sum_{k} \\lambda_{jk} * W_{ki} \\textrm{with}\\
         W_{ki} = \\theta_{ki, s=0} - \\theta_{ki, s=1}
-    Beware that axis are reversed compared to the model in [1]. This due to the
+    Note that axis are reversed compared to the model in [1]. This due to the
     terms of use of wonterfact.
 
     References
     ----------
     ..[1] B.Fuentes et. al., Probabilistic semi-nonnegative matrix factorization:
-    a Skellam-based framework, 2021
+    a Skellam-based framework, 2021, submitted for publication.
 
     """
     ### creation of atoms leaf
@@ -126,6 +126,7 @@ def make_snmf(
 
     ### creation or the root
     root = wtf.Root(
+        name="root",
         inference_mode=inference_mode,
         stop_estim_threshold=1e-7,
         cost_computation_iter=50,

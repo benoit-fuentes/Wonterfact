@@ -19,9 +19,6 @@
 
 """Initialization file for the wonterfact package"""
 
-# Python Future imports
-from __future__ import division, unicode_literals, print_function, absolute_import
-
 # Python System imports
 
 # Third-party imports

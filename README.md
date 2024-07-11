@@ -1,7 +1,7 @@
 # WONTERFACT
 
 ## Overview
-Wonterfact, or WONderful TEnsoR FACTorization, is a python package which provides a powerful tool to design any tensor factorization model and estimate the corresponding parameters.
+Wonterfact, or WONderful TEnsoR FACTorization, is a python package that provides a powerful tool to design any tensor factorization model and estimate the corresponding parameters.
 
 This project has been initiated from 2015 to 2019 by Benoit Fuentes as a researcher in [Smart Impulse](https://www.smart-impulse.com/) R&D team.
 
@@ -20,7 +20,9 @@ This project has been initiated from 2015 to 2019 by Benoit Fuentes as a researc
 
 
 ## References
-For the moment, no article has been published yet to introduce this package and describe theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, you can check on the [technical report](https://www.benoit-fuentes.fr/downloads/Wonterfact_technical_report.pdf) (beware this is work in progress) if you're interested in the theory.
+For the moment, no article has been published yet to introduce this package and fully describe the theoretical background on which it relies. Such an article should be published during the year 2021. Meanwhile, please cite \[1\] if you use this package. You can also check on the [technical report](https://www.benoit-fuentes.fr/downloads/Wonterfact_technical_report.pdf) (be aware this is still work in progress) if you're interested in the theory.
+
+\[1\] B.Fuentes and G.Richard, *Probabilistic semi-nonnegative matrix factorization: a Skellam-based framework*, 2021, submitted for publication. [arxiv](https://arxiv.org/abs/2107.03317)
 
 
 ## Installation
@@ -28,7 +30,7 @@ For the moment, no article has been published yet to introduce this package and 
 ### Requirements
 Wonterfact only runs with python 3.8+.
 
-[Graphviz](https://graphviz.org/) need to be installed to be able to render graphs of designed model (not necessary).
+[Graphviz](https://graphviz.org/) needs to be installed to be able to render graphs of designed model (not necessary).
 
 To be able to use wonterfact with gpu (optional), [CUDA](https://developer.nvidia.com/cuda-toolkit-archive) and `cupy` need to be installed (see [here](https://docs.cupy.dev/en/master/install.html) for cupy installation).
 Wonterfact has only been tested with CUDA 10.2 and the corresponding `cupy` version:
@@ -75,7 +77,7 @@ Before implementing the model with wonterfact, it is recommended to draw the tre
 <img src="images/nmf_tree.svg" width="200">
 
 
-Nodes label correspond to the indexes of the tensors. Indexes are underlined to represent tensor not subject to normalization constraints (like $\lambda_{kt}$), and not underlined if they corresponds to normalized tensors such as $\theta_{f\mid k}$).
+Nodes label correspond to the indexes of the tensors. Indexes are underlined to represent tensor not subject to normalization constraints (like $\lambda_{kt}$), and not underlined if they corresponds to normalized tensors like $\theta_{f\mid k}$.
 
 ### Implementation with wonterfact
 

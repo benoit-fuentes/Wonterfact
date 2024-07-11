@@ -721,10 +721,11 @@ class Root(_ChildNode):
         fileformat=None,
         filename=None,
         legend_dict=None,
-        prior_nodes=False,
+        show_prior_nodes=False,
         view=True,
         show_node_names=False,
         integer_observations=False,
+        show_root=False
     ):
         """
         Draw the tree model with Graphviz (you need to install it and make sure
@@ -753,10 +754,11 @@ class Root(_ChildNode):
             fileformat=fileformat,
             filename=filename,
             legend_dict=legend_dict,
-            prior_nodes=prior_nodes,
+            show_prior_nodes=show_prior_nodes,
             view=view,
             show_node_names=show_node_names,
             integer_observations=integer_observations,
+            show_root=show_root
         )
 
     def clear_all_nodes_cache(self):

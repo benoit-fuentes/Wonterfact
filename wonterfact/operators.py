@@ -434,7 +434,10 @@ class Multiplexer(_Operator):
             )
             for num_parent, parent in enumerate(self.list_of_parents):
                 self.parent_slicing_dict.update(
-                    {parent: (slice(None),) * multiplexer_idx_number + (num_parent,)}
+                    {
+                        parent: (slice(None),) * multiplexer_idx_number
+                        + (num_parent, Ellipsis)
+                    }
                 )
 
         # if concatenation is performed along an existing axis

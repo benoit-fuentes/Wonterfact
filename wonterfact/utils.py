@@ -47,7 +47,7 @@ class BackendSpecific:
             return np
         elif backend == "cupy":
             import cupy  # pylint: disable=import-error
-
+            
             return cupy
         else:
             BackendSpecific.raise_backend_error(backend)
