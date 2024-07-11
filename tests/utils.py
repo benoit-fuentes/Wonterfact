@@ -33,7 +33,10 @@ def _assert_graphviz_ok(tree, legend_dict=None):
     with tempfile.TemporaryDirectory() as tmpdir:
         filemane = Path(tmpdir) / "test.pdf"
         tree.draw_tree(
-            filename=filemane, legend_dict=legend_dict, prior_nodes=True, view=False
+            filename=filemane,
+            legend_dict=legend_dict,
+            show_prior_nodes=True,
+            view=False,
         )
         return filemane.exists()
 

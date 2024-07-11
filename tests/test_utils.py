@@ -23,7 +23,6 @@
 
 # Third-party imports
 import numpy as np
-import numpy.random as npr
 import pytest
 
 try:
@@ -33,7 +32,6 @@ except:
 
 # wonterfact imports
 from wonterfact import utils
-from wonterfact import glob
 
 
 def prepare_for_numpy_einsum(args):
@@ -177,7 +175,7 @@ def test_einsum_two_operands(operations_as_list, xp):
         )
     for elem in operations_as_list:
         elem[4][...] = 0.0
-        utils._einsum_two_operands(*elem[:4], elem[5], backend, out=elem[4]),
+        (utils._einsum_two_operands(*elem[:4], elem[5], backend, out=elem[4]),)
         assert xp.allclose(elem[4], xp.einsum(*prepare_for_numpy_einsum(elem)))
 
 
@@ -643,7 +641,7 @@ def test_explicit_slice():
     for sl in list_of_input:
         explicit_sl = utils.explicit_slice(sl, ndim)
         assert len(explicit_sl) == ndim - 1
-        assert np.alltrue(explicit_sl[0] == mask)
+        assert np.all(explicit_sl[0] == mask)
         assert explicit_sl[1:] == (slice(None),) * (ndim - 2)
 
 

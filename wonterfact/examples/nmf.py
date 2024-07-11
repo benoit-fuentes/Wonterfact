@@ -24,7 +24,6 @@
 
 # Third-party imports
 import numpy as np
-from numpy.lib.function_base import meshgrid
 import numpy.random as npr
 
 # wonterfact imports
@@ -33,7 +32,6 @@ import wonterfact.utils as wtfu
 
 
 def make_nmf(fix_atoms=False, dim_k=5, dim_f=20, dim_t=100):
-
     atoms_kf = npr.dirichlet(np.ones(dim_f) * 0.9, size=dim_k)
 
     activations_tk = npr.gamma(shape=0.6, scale=200, size=(dim_t, dim_k))
