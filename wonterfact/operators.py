@@ -23,8 +23,6 @@
 from functools import cached_property
 
 # Third-party imports
-import numpy as np
-from methodtools import lru_cache
 
 # Relative imports
 from . import utils
@@ -32,7 +30,7 @@ from .core_nodes import _ChildNode, _DynNodeData
 from .glob_var_manager import glob
 
 
-class _Operator(_ChildNode, _DynNodeData):
+class _Operator(_DynNodeData, _ChildNode):
     """
     Mother class of all operators
     """
@@ -185,7 +183,7 @@ class Multiplier(_Operator):
             *input_einconv,
             compute_correlation=True,
             conv_idx_list=self.conv_idx_ids,
-            out=out
+            out=out,
         )
         if out is None:
             return update_tensor

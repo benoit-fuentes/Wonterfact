@@ -478,9 +478,9 @@ class Root(_ChildNode):
                 <= self.parab_acc_state["step_max"]
             ):
                 if step > 0:
-                    self.parab_acc_state["step_to_cost"][
-                        step
-                    ] = self._eval_parabolic_step(step)
+                    self.parab_acc_state["step_to_cost"][step] = (
+                        self._eval_parabolic_step(step)
+                    )
 
                 if (
                     self.parab_acc_state["step_to_cost"][step]
@@ -547,7 +547,7 @@ class Root(_ChildNode):
                     ] *= self.parabolic_forget_distrib_param
                     self.parab_acc_state["step_distrib"][
                         self.parab_acc_state["last_best_step"], best_step
-                    ] += (1 - self.parabolic_forget_distrib_param)
+                    ] += 1 - self.parabolic_forget_distrib_param
                     self.parab_acc_state["best_step_list"].append(best_step)
                     self.parab_acc_state["last_best_step"] = best_step
                     self.parab_acc_state["initialization_stage"] = True
@@ -725,7 +725,7 @@ class Root(_ChildNode):
         view=True,
         show_node_names=False,
         integer_observations=False,
-        show_root=False
+        show_root=False,
     ):
         """
         Draw the tree model with Graphviz (you need to install it and make sure
@@ -758,7 +758,7 @@ class Root(_ChildNode):
             view=view,
             show_node_names=show_node_names,
             integer_observations=integer_observations,
-            show_root=show_root
+            show_root=show_root,
         )
 
     def clear_all_nodes_cache(self):

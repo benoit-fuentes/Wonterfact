@@ -45,7 +45,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         constraint_type="inequality",
         constraint_max_iter=10,
         prior_accelerator=None,
-        **kwargs
+        **kwargs,
     ):
         """
         Parameters
@@ -171,7 +171,6 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             utils.clip_inplace(self.tensor, a_min=self.min_val, backend=glob.backend)
 
     def _initialization(self):
-
         if self.update_period != 0:
             self.tensor_update = glob.xp.empty_like(self.tensor)
             if self._inference_mode == "VBEM":
@@ -251,7 +250,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             tensor[...] = (
                 (1 - param) ** 2 * self._past_tensor[0]
                 + 2 * (1 - param) * param * self._past_tensor[1]
-                + (param ** 2) * self._past_tensor[2]
+                + (param**2) * self._past_tensor[2]
             )
 
     def _parabolic_update(self, parabolic_param):
@@ -346,7 +345,7 @@ class LeafGamma(_Leaf):
         max_energy=None,
         total_max_energy=None,
         learn_prior_beta=False,
-        **kwargs
+        **kwargs,
     ):
         """
         Returns a LeafGamma object, corresponding to non-normalized tensors.
@@ -451,8 +450,8 @@ class LeafGamma(_Leaf):
         return cst_prior.sum().item()
 
     def _prior_value(self):
-        if self.update_period == 0:
-            return 0
+        # if self.update_period == 0:
+        #     return 0
         if self._inference_mode == "EM":
             if self._prior_alpha_all_one and self.rate_parent is None:  # no prior
                 return 0
@@ -812,9 +811,7 @@ class LeafGammaNorm(LeafGamma):
                     glob.backend
                 ).normalize_l1_l2_tensor_numba_core[
                     tensor.shape[0], (tensor.shape[1] + 1) // 2
-                ](
-                    tensor, self.n_iter_norm2, self.prior_rate_as_float
-                )
+                ](tensor, self.n_iter_norm2, self.prior_rate_as_float)
                 # pylint: enable=unsubscriptable-object
         elif self._inference_mode == "VBEM":
             raise NotImplementedError
@@ -826,10 +823,10 @@ class LeafGammaNorm(LeafGamma):
     def _normalize_l1_l2_tensor(tensor, l2_norm_axis, n_iter, prior_rate):
         tensor_init = tensor.copy()
         for __ in range(n_iter):
-            norm22 = (tensor ** 2).sum(l2_norm_axis, keepdims=True)
-            norm2 = norm22 ** 0.5
+            norm22 = (tensor**2).sum(l2_norm_axis, keepdims=True)
+            norm2 = norm22**0.5
             delta = norm22 + 4 * prior_rate * tensor_init * norm2
-            tensor[...] = (-norm2 + delta ** 0.5) / (2 * prior_rate)
+            tensor[...] = (-norm2 + delta**0.5) / (2 * prior_rate)
 
     @cached_property
     def prior_rate_as_float(self):
@@ -856,7 +853,7 @@ class LeafGammaNorm(LeafGamma):
                 prior_val = utils.xlogy(self._prior_shape_minus_one, tensor)
             else:
                 prior_val = glob.xp.zeros_like(tensor)
-            norm2 = (tensor ** 2).sum(self.l2_norm_axis, keepdims=True) ** 0.5
+            norm2 = (tensor**2).sum(self.l2_norm_axis, keepdims=True) ** 0.5
             if self.rate_parent is not None:
                 prior_val -= (
                     self.prior_rate

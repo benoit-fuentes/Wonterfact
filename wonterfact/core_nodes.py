@@ -181,9 +181,7 @@ class _ParentNode(_Node):
             raise ValueError(
                 """
                 {} nodes cannot have more than {} child(ren)
-                """.format(
-                    type(self), self.max_children
-                )
+                """.format(type(self), self.max_children)
             )
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
@@ -305,9 +303,7 @@ class _ChildNode(_Node):
             raise ValueError(
                 """
                 {} nodes cannot have more than {} parent(s)
-                """.format(
-                    type(self), self.max_parents
-                )
+                """.format(type(self), self.max_parents)
             )
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
