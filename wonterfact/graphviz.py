@@ -68,6 +68,11 @@ def _get_node_prefix(node, legend_dict, **extra_param):
         # return "&Sigma;"
         return "(+)"
 
+    if isinstance(node, operators.Smoothstep):
+        return "&#223F;<sub><i>{}</i></sub>".format(
+            legend_dict[node.index_id[-1]]["letter"]
+        )
+
     if isinstance(node, observers.PosObserver):
         integer_observations = extra_param.get("integer_observations", False)
         if integer_observations:
@@ -106,7 +111,9 @@ def _get_edge_label(node, child, legend_dict):
             if elem_as_np is not None:
                 masked_idx += node.index_id[num_idx : num_idx + elem_as_np.ndim]
                 num_idx += elem_as_np.ndim
-                explicit_slice += [slice(None),] * elem_as_np.ndim
+                explicit_slice += [
+                    slice(None),
+                ] * elem_as_np.ndim
             else:
                 explicit_slice.append(elem)
                 num_idx += 1
@@ -159,7 +166,7 @@ def _draw_tree(
     view=True,
     show_node_names=False,
     integer_observations=False,
-    show_root=False
+    show_root=False,
 ):
     if tree.current_iter == 0:
         tree._first_iteration(check_model_validity=False)
@@ -212,8 +219,7 @@ def _draw_tree(
     )
     graph.attr("node", color="#0b51c3f2", fontname="Times-Roman", height="0")
     graph.attr("edge", color="#0b51c3f2", arrowhead="none", fontname="Times-Roman")
-    
-    
+
     # draw all nodes
     for node in tree.census():
         xlabel = _html(_small_font(node.name)) if show_node_names else None
@@ -355,9 +361,18 @@ def _draw_tree(
                 edge_label = _get_edge_label(node, child, legend_dict)
                 if edge_label:
                     edge_label = _html(_small_font(edge_label))
-                linestyle = 'dotted' if node.level==0 or isinstance(child, observers._Observer) else 'solid'
+                linestyle = (
+                    "dotted"
+                    if node.level == 0 or isinstance(child, observers._Observer)
+                    else "solid"
+                )
                 if child != tree or show_root:
-                    graph.edge(str(id(node)), str(id(child)), taillabel=edge_label, style=linestyle)
+                    graph.edge(
+                        str(id(node)),
+                        str(id(child)),
+                        taillabel=edge_label,
+                        style=linestyle,
+                    )
 
     if any("description" in idx_dict for idx_dict in legend_dict.values()):
         label_legend = (
@@ -373,7 +388,7 @@ def _draw_tree(
                     "</TR>".format(idx_dict["letter"], idx_dict["description"])
                 )
         label_legend = label_legend + "</TABLE>"
-        subg_name, rank = ("observers", "same") if show_root else ('legend', 'max')
+        subg_name, rank = ("observers", "same") if show_root else ("legend", "max")
         with graph.subgraph(name=subg_name) as subg:
             subg.attr(rank=rank)
             subg.node(

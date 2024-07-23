@@ -563,7 +563,6 @@ class Integrator(_Operator):
             self.full_tensor_update = glob.xp.zeros_like(self.tensor)
             self.tensor_update = self.full_tensor_update
             self.update_to_give = glob.xp.empty_like(self.tensor)
-            self.integration_dim = self.tensor.shape[-1]
 
     @cached_property
     def _normalization_coef(self):
@@ -675,6 +674,48 @@ class Adder(_Operator):
                 "Model is wrong at {} level. Parents' tensors of an Adder "
                 "should all have energy."
             )
+
+
+class Smoothstep(_Operator):
+    """
+    Class for nonlinear smoothstep operation on its parent last_axis (should be of length 2)
+    """
+
+    max_parents = 1
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _initialization(self):
+        self.tensor = glob.xp.empty_like(
+            self.first_parent.get_tensor_for_children(self)
+        )
+        self._update_tensor()
+        if self.update_period != 0:
+            self.full_tensor_update = glob.xp.zeros_like(self.tensor)
+            self.tensor_update = self.full_tensor_update
+            self.update_to_give = glob.xp.empty_like(self.tensor)
+
+    def _update_tensor(self, **kwargs):
+        parent_tensor = self.first_parent.get_tensor_for_children(self)
+        self.tensor[...] = (parent_tensor**2) * (1 + 2 * parent_tensor[..., ::-1])
+
+    def _give_update(self, parent, out=None):
+        should_return = False
+        if out is None:
+            out = glob.xp.empty_like(self.tensor)
+            should_return = True
+        U0 = self.tensor_update[..., 0]
+        U1 = self.tensor_update[..., 1]
+        parent_tensor = parent.get_tensor_for_children(self)
+        P0 = parent_tensor[..., 0]
+        P1 = parent_tensor[..., 1]
+        U0P0 = U0 * P0
+        U1P1 = U1 * P1
+        out[..., 0] = U0P0 * (1 + 2 * P1) + U1P1 * P1
+        out[..., 1] = U0P0 * P0 + U1P1 * (1 + 2 * P0)
+        if should_return:
+            return out
 
 
 # class RealMultiplier(DynNodeData):
