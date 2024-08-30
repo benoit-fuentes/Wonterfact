@@ -23,8 +23,6 @@
 # Python System imports
 
 # Third-party imports
-import numpy as np
-import numpy.random as npr
 from functools import cached_property
 
 
@@ -33,11 +31,11 @@ from . import utils, core_nodes
 from .glob_var_manager import glob
 
 
-class _Observer(
+class PosObserver(
     core_nodes._NodeData, core_nodes._ChildNode
 ):  # TODO: optimize mask_data
     """
-    Base class for all Observer nodes, i.e. nodes that carry observed data.
+    Class for nonnegative observations.
     """
 
     def __init__(self, **kwargs):
@@ -72,6 +70,7 @@ class _Observer(
         weight to the priors in the early stage of the algorithm. If you do not
         want to use this feature, just leave default values for those arguments.
         """
+        self.norm_axis = kwargs.pop("norm_axis", ())
         self.mask_data = kwargs.pop("mask_data", None)
         self.drawings_max = kwargs.pop("drawings_max", None)
         self.drawings_step = kwargs.pop("drawings_step", None)
@@ -82,6 +81,13 @@ class _Observer(
         self.drawings_step = self.drawings_step or self.sum_tensor
         self.drawings = self.drawings_step
         self.drawings_update_counter = 0
+
+    def _initialization(self):
+        pass
+
+    @property
+    def number_of_drawings(self):
+        return (self.get_current_mult_factor() * self.tensor).sum(self.norm_axis)
 
     @cached_property
     def is_tensor_null(self):
@@ -110,23 +116,9 @@ class _Observer(
         if self.mask_data is not None:
             tensor_update[self.mask_data] = 1
 
-    def get_current_reconstruction(self):
-        """
-        Returns the current approximation of the observed tensor.
-        """
-        raise NotImplementedError
-
+    @property
     def tensor_has_energy(self):
-        return True
-
-
-class PosObserver(_Observer):
-    """
-    Class for nonnegative observations.
-    """
-
-    def _initialization(self):
-        pass
+        return False
 
     def _give_update(self, parent, out=None):
         parent_tensor = parent.get_tensor_for_children(self)
@@ -178,170 +170,11 @@ class PosObserver(_Observer):
         for parent in self.list_of_parents:
             my_tensor = self.get_current_mult_factor() * self.tensor
             parent_tensor = parent.get_tensor_for_children(self)
-            if self._inference_mode == "EM":
-                lh -= parent_tensor
-            elif self._inference_mode == "VBEM":
-                pass
-                # this part is canceled with the gamma leaves prior values
-                # and therefore, method "_get_mean_tensor_for_VBEM" has been
-                # removed (check v2.1.2 to get it back)
-                # lh -= parent._get_mean_tensor_for_VBEM(self)
             lh += utils.xlogy(my_tensor, parent_tensor)
             lh -= glob.sps.gammaln(my_tensor + 1)
         if self.mask_data is not None:
-            if self._inference_mode == "EM":
-                lh[self.mask_data] = 0
-            elif self._inference_mode == "VBEM":
-                lh[self.mask_data] = parent_tensor[self.mask_data]
-        return -lh.sum().item()
-
-
-class RealObserver(_Observer):
-    """
-    Class for real observations
-    """
-
-    def __init__(self, **kwargs):
-        """
-        Parameters
-        ----------
-        limit_skellam_update: bool, default True
-            Set to True if data are real, False if data are integer
-        """
-        self.limit_skellam_update = kwargs.pop("limit_skellam_update", True)
-        super().__init__(**kwargs)
-
-    @cached_property
-    def abs_tensor(self):
-        return glob.xp.abs(self.tensor)
-
-    @cached_property
-    def abs_tensor_plus_1(self):
-        return self.abs_tensor + 1
-
-    @cached_property
-    def abs_tensor_power2(self):
-        return self.abs_tensor ** 2
-
-    @cached_property
-    def nonneg_tensor(self):
-        return utils.real_to_2D_nonnegative(self.tensor)
-
-    def _initialization(self):
-        pass
-
-    def get_current_reconstruction(self, parent, force_numpy=False):
-        parent_tensor = parent.get_tensor_for_children(self)
-        real_parent_tensor = parent_tensor[..., 0] - parent_tensor[..., 1]
-        tensor_to_give = real_parent_tensor / self.get_current_mult_factor()
-        if force_numpy and utils.infer_backend(tensor_to_give) == glob.CUPY:
-            return glob.xp.asnumpy(tensor_to_give)
-        return tensor_to_give
-
-    def _get_data_fitting(self):
-        """
-        Returns minus log-likelihood of either Skellam distribution or extended
-        real KL divergence.
-        """
-        lh = glob.xp.zeros_like(self.tensor)
-        for parent in self.list_of_parents:
-            mult_fact = self.get_current_mult_factor()
-            parent_tensor = parent.get_tensor_for_children(self)
-            if self._inference_mode == "EM":
-                lh -= parent_tensor.sum(-1)
-            elif self._inference_mode == "VBEM":
-                pass
-                # this part is canceled with the gamma leaves prior values
-                # and therefore, method "_get_mean_tensor_for_VBEM" has been
-                # removed (check v2.1.2 to get it back)
-                # lh -= parent._get_mean_tensor_for_VBEM(self).sum(-1)
-            abs_tensor = mult_fact * self.abs_tensor
-            inside_log = (
-                parent_tensor[..., 0] * self.is_tensor_pos
-                + parent_tensor[..., 1] * glob.xp.logical_not(self.is_tensor_pos)
-                + self.is_tensor_null
-            )
-            lh += utils.xlogy(abs_tensor, inside_log)
-            if not self.limit_skellam_update:
-                abs_tensor += 1
-                lh += utils.hyp0f1ln(
-                    abs_tensor, parent_tensor[..., 0] * parent_tensor[..., 1]
-                )
-                lh -= glob.sps.gammaln(abs_tensor)
-            else:
-                temp_calculus = self.temp_calculus(parent)
-                lh += temp_calculus
-                lh -= utils.xlogy(
-                    abs_tensor, (abs_tensor + temp_calculus + self.is_tensor_null) / 2
-                )
-        if self.mask_data is not None:
-            if self._inference_mode == "EM":
-                lh[self.mask_data] = 0
-            elif self._inference_mode == "VBEM":
-                lh[self.mask_data] = parent_tensor[self.mask_data, :].sum(-1)
-        return -lh.sum().item()
-
-    def temp_calculus(self, parent):
-        parent_tensor = parent.get_tensor_for_children(self)
-        model_param_prod = parent_tensor[..., 0] * parent_tensor[..., 1]
-        if self.there_is_a_mult_factor():
-            abs_tensor_power2 = (
-                self.get_current_mult_factor() ** 2 * self.abs_tensor_power2
-            )
-        else:
-            abs_tensor_power2 = self.abs_tensor_power2
-        temp = glob.xp.sqrt(4 * model_param_prod + abs_tensor_power2)
-        return temp
-
-    def _give_update(self, parent, out=None):
-
-        # model
-        parent_tensor = parent.get_tensor_for_children(self)
-        if self.there_is_a_mult_factor():
-            mult_fact = self.get_current_mult_factor()
-            abs_tensor = mult_fact * self.abs_tensor
-            nonneg_tensor = mult_fact * self.nonneg_tensor
-        else:
-            abs_tensor = self.abs_tensor
-            nonneg_tensor = self.nonneg_tensor
-
-        if out is None:
-            tensor_update = glob.xp.empty_like(parent_tensor)
-        else:
-            tensor_update = out
-
-        # compute tensor_update
-        if not self.limit_skellam_update:
-            model_param_prod = parent_tensor[..., 0] * parent_tensor[..., 1]
-            for ii in range(2):
-                tensor_update[..., ii] = (2 * parent_tensor[..., 1 - ii]) / (
-                    2 * (1 + abs_tensor)
-                    + utils.bessel_ratio(
-                        abs_tensor + 1,
-                        2 * (model_param_prod ** 0.5),
-                        1e-16,
-                    )
-                )
-        else:
-            temp_calculus = self.temp_calculus(parent)
-            for ii in range(2):
-                tensor_update[..., ii] = (2 * parent_tensor[..., 1 - ii]) / (
-                    abs_tensor
-                    + temp_calculus
-                    # to avoid x/0, in which case value of tensor_update is not important
-                )
-        if glob.xp == np:
-            with np.errstate(invalid="ignore"):
-                tensor_update += nonneg_tensor / parent_tensor
-        else:
-            tensor_update += nonneg_tensor / parent_tensor
-        tensor_update[parent_tensor == 0] = 0
-        # glob.xp.nan_to_num(tensor_update, copy=False)
-
-        self.update_drawings()
-        self.apply_mask_to_tensor_update(tensor_update)
-
-        return tensor_update
+            raise NotImplementedError
+        return -lh.sum().item() - glob.sps.gammaln(self.number_of_drawings).sum()
 
 
 class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):

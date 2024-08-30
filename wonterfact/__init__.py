@@ -29,9 +29,9 @@
 from . import utils
 from .utils import create_filiation
 from .root import Root
-from .leaves import LeafGamma, LeafDirichlet, LeafGammaNorm
+from .leaves import LeafDirichlet
 from .operators import Multiplier, Multiplexer, Integrator, Adder, Proxy
-from .observers import PosObserver, RealObserver, BlindObs
+from .observers import PosObserver, BlindObs
 from .glob_var_manager import glob
 
 # Django imports only if possible.

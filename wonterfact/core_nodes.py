@@ -365,6 +365,7 @@ class _NodeData(_ParentNode):
         attr = getattr(self, attr)
         return self.cast_array(attr, force_numpy=True)
 
+    @property
     def tensor_has_energy(self):
         """
         Tells if inner tensor has energy. If not, it means that inner tensor

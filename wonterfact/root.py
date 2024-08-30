@@ -32,7 +32,6 @@ from . import graphviz
 # Third-party imports
 import numpy as np
 import logging
-from custom_inherit import doc_inherit
 
 
 class Root(_ChildNode):
@@ -617,8 +616,6 @@ class Root(_ChildNode):
         not be reached, calling this method twice with a given ``n_iter=n`` is
         equivalent to calling it once with ``n_iter=2 * n``.
         """
-        if self.inference_mode == "EM":
-            raise ValueError("hyperparameters cannot be estimated in EM mode")
         if clear_cache:
             self.clear_all_nodes_cache()
         # first compute tensor update
@@ -627,10 +624,7 @@ class Root(_ChildNode):
                 bud.compute_tensor_update_online(learning_rate=learning_rate)
         for __ in range(n_iter):
             for bud in self.nodes_by_level[0]:
-                if isinstance(bud, buds.BudShape) and bud.update_period != 0:
-                    bud.update_tensor()
-            for bud in self.nodes_by_level[0]:
-                if isinstance(bud, buds.BudRate) and bud.update_period != 0:
+                if bud.update_period != 0:
                     bud.update_tensor()
         # empty cache because hyperparameters have changed
         for leaf in self.nodes_by_level[1]:

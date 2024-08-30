@@ -79,12 +79,6 @@ def _get_node_prefix(node, legend_dict, **extra_param):
             return "&#8469;"
         return "&#8477;<sup>+</sup>"
 
-    if isinstance(node, observers.RealObserver):
-        integer_observations = extra_param.get("integer_observations", False)
-        if integer_observations:
-            return "&#8484;"
-        return "&#8477;"
-
     if isinstance(node, operators.Integrator):
         return "&#8747;<sub><i>{}</i></sub>".format(
             legend_dict[node.index_id[-1]]["letter"]
@@ -307,7 +301,7 @@ def _draw_tree(
                 node_label = _make_node_label(node_prefix, index_label, underline)
 
             # special shape for observers
-            if isinstance(node, observers._Observer):
+            if isinstance(node, observers.PosObserver):
                 with graph.subgraph(name="observers") as subg:
                     if show_root:
                         subg.attr(rank="same")
@@ -363,7 +357,7 @@ def _draw_tree(
                     edge_label = _html(_small_font(edge_label))
                 linestyle = (
                     "dotted"
-                    if node.level == 0 or isinstance(child, observers._Observer)
+                    if node.level == 0 or isinstance(child, observers.PosObserver)
                     else "solid"
                 )
                 if child != tree or show_root:

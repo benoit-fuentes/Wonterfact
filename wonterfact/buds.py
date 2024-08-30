@@ -59,11 +59,6 @@ class _Bud(core_nodes._DynNodeData0):
                 "hyperparameters is linked to at least one child.".format(self)
             )
 
-    def _set_inference_mode(self, mode="EM"):
-        super()._set_inference_mode(mode=mode)
-        if mode == "EM":
-            self.update_period = 0
-
     def _first_iteration(self):
         # this one is for e_d or m_e (cf technical report)
         self.tensor_update = glob.xp.empty_like(self.tensor)
@@ -115,19 +110,3 @@ class BudShape(_Bud):
             (self.tensor_update_bis + self.tensor_update) / self.number_of_users,
             out=self.tensor,
         )
-
-
-class BudRate(_Bud):
-    def init(self, prior_rate):
-        prior_rate = glob.xp.array(prior_rate, dtype=glob.float)
-        self.prior_rate = prior_rate
-        if self.prior_rate.size > 1 and not (self.prior_rate > 0).all():
-            raise ValueError("prior_rate, if not None, must be > 0")
-
-    @property
-    def tensor_has_energy(self):
-        return True
-
-    def update_tensor(self):
-        self.get_update_bis(tensor_to_fill=self.tensor_update_bis)
-        self.tensor[...] = self.tensor_update_bis / self.tensor_update
