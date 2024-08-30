@@ -81,8 +81,8 @@ class _Node(
         return True
 
     def _set_inference_mode(self, mode="EM"):
-        if mode not in ("EM", "VBEM"):
-            raise ValueError("Wrong inference mode value: must be 'EM of 'VBEM' ")
+        if mode not in ("EM", "VBEM", "EMstoch"):
+            raise ValueError("Unkwnon inference mode value")
         self._inference_mode = mode
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):

@@ -40,6 +40,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         self,
         brake: None | float = None,
         inertia: float = 0,
+        variance_factor: float = 1.0,
         init_type="custom",
         prior_shape=None,
         constraint_coeffs=None,
@@ -81,6 +82,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         """
         self.brake = brake
         self.inertia = inertia
+        self.variance_factor = variance_factor
         self.init_type = init_type
         self.constraint_coeffs = constraint_coeffs
         self.constraint_type = constraint_type
@@ -98,10 +100,9 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
 
     @property
     def min_val(self):
-        if self._inference_mode == "EM":
-            return 1e-20
-        elif self._inference_mode == "VBEM":
+        if self._inference_mode == "VBEM":
             return 0.02
+        return 1e-20
 
     @property
     def level(self):
@@ -168,10 +169,6 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             self.tensor_update = glob.xp.empty_like(self.tensor)
             if self._inference_mode == "VBEM":
                 self.posterior_shape = glob.xp.zeros_like(self.tensor)
-            elif self._inference_mode == "EM":
-                self.norm_tensor = glob.xp.zeros_like(
-                    self.tensor.sum(axis=self.norm_axis, keepdims=True)
-                )
 
     def _update_tensor(self, update_type="regular", update_param=None):
         # update rules are the same in VBEM and EM mode
@@ -200,7 +197,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         if self.brake:
             tensor_update = tensor_update + self.brake
 
-        if self._inference_mode == "EM":
+        if self._inference_mode in ("EM", "EMstoch"):
             self.tensor *= tensor_update
             if not self._prior_alpha_all_one:
                 self.tensor += self._prior_shape_minus_one
@@ -217,14 +214,14 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
     def _reinit_tensor_values(self, init_type=None):
         init_type = init_type or self.init_type
         if init_type == "random":
-            if self._inference_mode == "EM":
+            if self._inference_mode in ("EM", "EMstoch"):
                 tensor = self.tensor
             elif self._inference_mode == "VBEM":
                 tensor = self.posterior_shape
             tensor[...] = 1 + glob.xp.random.rand(*tensor.shape).astype(tensor.dtype)
             self._normalize_tensor()
         elif init_type == "prior":
-            if self._inference_mode == "EM":
+            if self._inference_mode in ("EM", "EMstoch"):
                 # one takes self.prior_shape / (1 + self.prior_rate)
                 self.tensor[...] = 0
                 self.tensor += self.prior_shape
@@ -243,6 +240,9 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             tensor = self.tensor
         elif self._inference_mode == "VBEM":
             tensor = self.posterior_shape
+        else:
+            msg = f"Not possible for this inference mode {self._inference_mode}"
+            raise NotImplementedError(msg)
         if glob.processor == glob.GPU:
             utils.xp_utils.get_cupy_utils(glob.backend)._set_bezier_point(
                 self._past_tensor[0],
@@ -380,20 +380,25 @@ class LeafDirichlet(_Leaf):
         super()._reinit_tensor_values(init_type=init_type)
 
     def _normalize_tensor(self, **kwargs):
-        if self._inference_mode == "EM" or self.update_period == 0:
-            self.norm_tensor = self.tensor.sum(axis=self.norm_axis, keepdims=True)
+        if self._inference_mode == "EMstoch":
+            self.tensor[...] = glob.xp.random.gamma(
+                self.tensor / self.variance_factor, glob.xp.ones_like(self.tensor)
+            )
+        if self._inference_mode in ("EM", "EMstoch") or self.update_period == 0:
+            norm_tensor = self.tensor.sum(axis=self.norm_axis, keepdims=True)
             if self.constraint_coeffs is not None:
                 sigma = utils._find_equality_root(
                     self.tensor,
-                    self.norm_tensor,
+                    norm_tensor,
                     self.constraint_coeffs,
                     self.constraint_max_iter,
                     type=self.constraint_type,
                     atol=1e-10,
                 )
-                self.tensor /= self.norm_tensor - sigma * self.constraint_coeffs
+                self.tensor /= norm_tensor - sigma * self.constraint_coeffs
             else:
-                self.tensor /= self.norm_tensor
+                self.tensor /= norm_tensor
+
         elif self._inference_mode == "VBEM":
             if self.constraint_coeffs is not None:
                 raise NotImplementedError
@@ -419,7 +424,7 @@ class LeafDirichlet(_Leaf):
 
     @property
     def _cst_prior_value(self):
-        if self._inference_mode == "EM":
+        if self._inference_mode in ("EM", "EMstoch"):
             prior_shape = glob.xp.zeros_like(self.tensor) + self.prior_shape
             cst_prior = (
                 glob.sps.gammaln((prior_shape).sum(self.norm_axis)).sum()
@@ -440,7 +445,7 @@ class LeafDirichlet(_Leaf):
     def _prior_value(self):
         if self.update_period == 0 or self.norm_axis == ():
             return 0
-        if self._inference_mode == "EM":
+        if self._inference_mode in ("EM", "EMstoch"):
             if self._prior_alpha_all_one:
                 prior_val = np.array(0)
             else:
@@ -472,12 +477,12 @@ class LeafDirichlet(_Leaf):
             prior_val *= self.prior_accelerator
         return prior_val.item() + self._cst_prior_value
 
-    def _bump(self, variance=1):
-        if self._inference_mode == "EM":
-            posterior_shape = self.tensor * self.norm_axis
+    def _bump(self):
+        if self._inference_mode in ("EM", "EMstoch"):
+            posterior_shape = self.tensor * self.tensor_update + self.prior_shape
+            # we should instead use the EMstoch option
         elif self._inference_mode == "VBEM":
             posterior_shape = self.posterior_shape
-        posterior_shape /= variance
         self.tensor[...] = glob.xp.random.gamma(
             posterior_shape, glob.xp.ones_like(self.tensor)
         )
