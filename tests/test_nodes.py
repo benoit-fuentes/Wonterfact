@@ -352,7 +352,7 @@ def test_compute_tensor_update(tree):
         mode="bottom-up",
         iteration_number=0,
         type_filter_list=[
-            buds._Bud,
+            buds.BudShape,
         ],
     )
 

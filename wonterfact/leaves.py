@@ -30,14 +30,15 @@ from . import utils, core_nodes, buds
 from .glob_var_manager import glob
 
 
-class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
+class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
     """
-    Mother class for the parameter leaves of a graphical model, i.e. tensors to
-    estimate in a factorization model.
+    Class for the Dirichlet leaves of a graphical model, i.e. normalized tensors to estimate in a
+    factorization model.
     """
 
     def __init__(
         self,
+        norm_axis: tuple[int] = (-1,),
         brake: None | float = None,
         inertia: float = 0,
         variance_factor: float = 1.0,
@@ -52,6 +53,10 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         """
         Parameters
         ----------
+        norm_axis: sequence of int, optional, default ()
+            Normalization axis for inner tensor, such that
+            `self.tensor.sum(norm_axis) == 1` is all True. Must be the last axes
+            of tensor.
         init_type: 'custom', 'prior', or 'random', default 'custom'
             If 'prior', initialization is defined by the prior distribution
             (mode of prior in EM mode and 'exp(mean of sufficient statistic)' in
@@ -80,6 +85,7 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             change their value. Useful for accelerating sparsity prior in the
             'VBEM' mode, when `prior_shape < 1`
         """
+        self._norm_axis = norm_axis
         self.brake = brake
         self.inertia = inertia
         self.variance_factor = variance_factor
@@ -97,12 +103,18 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         if prior_shape is not None:
             self._create_bud_parent(prior_shape)
         self.last_tensor_update = None
+        self.n_sufficient_statistic = 0
+        self.tensor_sufficient_statistic = glob.xp.zeros_like(self.tensor)
 
     @property
     def min_val(self):
         if self._inference_mode == "VBEM":
             return 0.02
         return 1e-20
+
+    @property
+    def norm_axis(self):
+        return self._norm_axis
 
     @property
     def level(self):
@@ -168,7 +180,10 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         if self.update_period != 0:
             self.tensor_update = glob.xp.empty_like(self.tensor)
             if self._inference_mode == "VBEM":
-                self.posterior_shape = glob.xp.zeros_like(self.tensor)
+                self.posterior_shape = self.tensor.copy() * 1e5
+        if self.update_period == 0 or self._inference_mode in ("EM", "VB-MCMC"):
+            if not glob.xp.allclose(self.tensor.sum(axis=self.norm_axis), 1):
+                raise ValueError("Please provide a well normalized tensor")
 
     def _update_tensor(self, update_type="regular", update_param=None):
         # update rules are the same in VBEM and EM mode
@@ -183,8 +198,34 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         else:
             raise ValueError("Unknown `update_type`")
 
-    def _normalize_tensor(self):
-        raise NotImplementedError()
+    def _normalize_tensor(self, **kwargs):
+        if self.constraint_coeffs is not None and self._inference_mode == "VBEM":
+            raise NotImplementedError
+
+        if self._inference_mode == "VB-MCMC" and self.variance_factor != 0:
+            self.tensor[...] = glob.xp.random.gamma(self.tensor - 0.5, 1)
+            # self.tensor[...] = glob.xp.random.gamma(self.tensor, 1)
+            self._clip_tensor_min_value()
+
+        if self._inference_mode in ("EM", "VB-MCMC") or self.update_period == 0:
+            norm_tensor = self.tensor.sum(axis=self.norm_axis, keepdims=True)
+            if self.constraint_coeffs is not None:
+                sigma = utils._find_equality_root(
+                    self.tensor,
+                    norm_tensor,
+                    self.constraint_coeffs,
+                    self.constraint_max_iter,
+                    type=self.constraint_type,
+                    atol=1e-10,
+                )
+                self.tensor /= norm_tensor - sigma * self.constraint_coeffs
+            else:
+                self.tensor /= norm_tensor
+        elif self._inference_mode in "VBEM":
+            norm_tensor = self.posterior_shape.sum(axis=self.norm_axis, keepdims=True)
+            self.tensor[...] = utils.exp_digamma(
+                self.posterior_shape
+            ) / utils.exp_digamma(norm_tensor)
 
     def _regular_update_tensor(self):
         if self.prior_accelerator is not None:
@@ -197,43 +238,35 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         if self.brake:
             tensor_update = tensor_update + self.brake
 
-        if self._inference_mode in ("EM", "EMstoch"):
-            self.tensor *= tensor_update
-            if not self._prior_alpha_all_one:
-                self.tensor += self._prior_shape_minus_one
-            if self._might_need_clipping:
-                self._clip_tensor_min_value()
+        if self.variance_factor not in [0.0, 1.0]:
+            tensor_update /= self.variance_factor
 
-        elif self._inference_mode == "VBEM":
+        if self._inference_mode == "EM":
+            self.tensor *= tensor_update
+            self.tensor += self.prior_shape - 1
+            self._clip_tensor_min_value()
+
+        if self._inference_mode == "VB-MCMC":
+            self.tensor *= tensor_update
+            self.tensor += self.prior_shape
+
+        if self._inference_mode == "VBEM":
             self.posterior_shape[...] = self.tensor * tensor_update
             self.posterior_shape += self.prior_shape
 
         self._normalize_tensor()
-        self.last_tensor_update = tensor_update
+        if self.inertia:
+            self.last_tensor_update = tensor_update
+        if self._inference_mode == "VB-MCMC":
+            self.update_sufficient_statistic()
 
-    def _reinit_tensor_values(self, init_type=None):
-        init_type = init_type or self.init_type
-        if init_type == "random":
-            if self._inference_mode in ("EM", "EMstoch"):
-                tensor = self.tensor
-            elif self._inference_mode == "VBEM":
-                tensor = self.posterior_shape
-            tensor[...] = 1 + glob.xp.random.rand(*tensor.shape).astype(tensor.dtype)
-            self._normalize_tensor()
-        elif init_type == "prior":
-            if self._inference_mode in ("EM", "EMstoch"):
-                # one takes self.prior_shape / (1 + self.prior_rate)
-                self.tensor[...] = 0
-                self.tensor += self.prior_shape
-                self._normalize_tensor()
-            if self._inference_mode == "VBEM":
-                # initialization corresponds to regular update when
-                # self.tensor_update[...] = 0
-                self.tensor_update[...] = 0
-                self._regular_update_tensor()
-        elif init_type == "custom":
-            if self._inference_mode == "VBEM":
-                self.posterior_shape[...] = self.tensor * 1e5
+    def update_sufficient_statistic(self):
+        self.tensor_sufficient_statistic += glob.xp.log(self.tensor)
+        self.n_sufficient_statistic += 1
+
+    def reset_sufficient_statistic(self):
+        self.tensor_sufficient_statistic[...] = 0
+        self.n_sufficient_statistic = 0
 
     def _set_bezier_point(self, param):
         if self._inference_mode == "EM":
@@ -259,7 +292,16 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             )
 
     def _parabolic_update(self, parabolic_param):
-        raise NotImplementedError
+        self._set_bezier_point(parabolic_param)
+        if self._inference_mode == "EM":
+            if (self.tensor <= self.min_val).any():
+                self._clip_tensor_min_value()
+                self._normalize_tensor()
+
+        # if VBEM, one need to recompute self.tensor
+        if self._inference_mode == "VBEM":
+            self._clip_tensor_min_value()
+            self._normalize_tensor()
 
     def _update_past_tensors(self):
         if not hasattr(self, "_past_tensor"):
@@ -272,15 +314,11 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             raise ValueError("unknown inference mode")
         self._past_tensor = self._past_tensor[1:] + self._past_tensor[:1]
 
-    @cached_property
+    @property
     def _might_need_clipping(self):
         return (self.prior_shape <= 1).any()
 
-    @cached_property
-    def _prior_shape_minus_one(self):
-        return self.prior_shape - 1
-
-    @cached_property
+    @property
     def _prior_alpha_all_one(self):
         return (self.shape_parent is None) or (self.prior_shape == 1).all()
 
@@ -294,32 +332,6 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
             ),
             None,
         )
-
-    def _give_update_alpha(self, parent, tensor, out=None):
-        parent_idx_id = parent.get_index_id_for_children(self)
-        update_tensor = utils.einsum(
-            glob.xp.log(tensor), self.index_id, parent_idx_id, out=out
-        )
-        if out is None:
-            return update_tensor
-
-    def _give_update(self, parent, out):
-        if isinstance(parent, buds.BudShape):
-            ## returns quantity e_d (cf technical report)
-            return self._give_update_alpha(parent, self.tensor, out=out)
-        raise ValueError("Class of parent argument must be wonterfact.bubs.BudShape")
-
-    def _give_number_of_users(self, parent, out=None):
-        """
-        Gives the number of parameters that share a same hyperparameter for each
-        hyperparameter (corresponds to $|\\phi^{-1}(d)|$ in tech report)
-        """
-        parent_idx_id = parent.get_index_id_for_children(self)
-        number_or_users = utils.einsum(
-            glob.xp.ones_like(self.tensor), self.index_id, parent_idx_id, out=out
-        )
-        if out is None:
-            return number_or_users
 
     def get_posterior_shape(self, force_numpy=False):
         """
@@ -335,96 +347,9 @@ class _Leaf(core_nodes._DynNodeData, core_nodes._ChildNode):
         """
         return self.cast_array(self.posterior_rate, force_numpy=force_numpy)
 
-
-class LeafDirichlet(_Leaf):
-    """
-    Class for the Dirichlet leaves of a graphical model, i.e. normalized
-    tensors to estimate in a factorization model.
-    """
-
-    def __init__(self, norm_axis=(), **kwargs):
-        """
-        Returns a LeafDirichlet object, corresponding to a normalized tensor.
-
-        Parameters
-        ----------
-        norm_axis: sequence of int, optional, default ()
-            Normalization axis for inner tensor, such that
-            `self.tensor.sum(norm_axis) == 1` is all True. Must be the last axes
-            of tensor.
-        """
-        self._norm_axis = norm_axis
-        super().__init__(**kwargs)
-
-    @property
-    def norm_axis(self):
-        return self._norm_axis
-
-    def _initialization(self):
-        super()._initialization()
-        if self.update_period != 0:
-            self._reinit_tensor_values()
-        else:
-            if not glob.xp.allclose(self.tensor.sum(axis=self.norm_axis), 1):
-                raise ValueError(
-                    "Please provide a well normalized tensor if update_period is 0"
-                )
-
-    def _reinit_tensor_values(self, init_type=None):
-        init_type = init_type or self.init_type
-        if init_type == "custom":
-            if not glob.xp.allclose(self.tensor.sum(axis=self.norm_axis), 1):
-                raise ValueError(
-                    "Please provide a well normalized tensor for custom initialization"
-                )
-        super()._reinit_tensor_values(init_type=init_type)
-
-    def _normalize_tensor(self, **kwargs):
-        if self._inference_mode == "EMstoch":
-            self.tensor[...] = glob.xp.random.gamma(
-                self.tensor / self.variance_factor, glob.xp.ones_like(self.tensor)
-            )
-        if self._inference_mode in ("EM", "EMstoch") or self.update_period == 0:
-            norm_tensor = self.tensor.sum(axis=self.norm_axis, keepdims=True)
-            if self.constraint_coeffs is not None:
-                sigma = utils._find_equality_root(
-                    self.tensor,
-                    norm_tensor,
-                    self.constraint_coeffs,
-                    self.constraint_max_iter,
-                    type=self.constraint_type,
-                    atol=1e-10,
-                )
-                self.tensor /= norm_tensor - sigma * self.constraint_coeffs
-            else:
-                self.tensor /= norm_tensor
-
-        elif self._inference_mode == "VBEM":
-            if self.constraint_coeffs is not None:
-                raise NotImplementedError
-            else:
-                norm_tensor = self.posterior_shape.sum(
-                    axis=self.norm_axis, keepdims=True
-                )
-                self.tensor[...] = utils.exp_digamma(
-                    self.posterior_shape
-                ) / utils.exp_digamma(norm_tensor)
-
-    def _parabolic_update(self, parabolic_param):
-        self._set_bezier_point(parabolic_param)
-        if self._inference_mode == "EM":
-            if (self.tensor <= self.min_val).any():
-                self._clip_tensor_min_value()
-                self._normalize_tensor()
-
-        # if VBEM, one need to recompute self.tensor
-        if self._inference_mode == "VBEM":
-            self._clip_tensor_min_value()
-            self._normalize_tensor()
-
     @property
     def _cst_prior_value(self):
-        if self._inference_mode in ("EM", "EMstoch"):
+        if self._inference_mode in ("EM", "VB-MCMC"):
             prior_shape = glob.xp.zeros_like(self.tensor) + self.prior_shape
             cst_prior = (
                 glob.sps.gammaln((prior_shape).sum(self.norm_axis)).sum()
@@ -445,11 +370,11 @@ class LeafDirichlet(_Leaf):
     def _prior_value(self):
         if self.update_period == 0 or self.norm_axis == ():
             return 0
-        if self._inference_mode in ("EM", "EMstoch"):
+        if self._inference_mode in ("EM", "VB-MCMC"):
             if self._prior_alpha_all_one:
                 prior_val = np.array(0)
             else:
-                prior_val = utils.xlogy(self._prior_shape_minus_one, self.tensor).sum()
+                prior_val = utils.xlogy(self.prior_shape - 1, self.tensor).sum()
         elif self._inference_mode == "VBEM":
             prior_shape = (
                 glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
@@ -478,9 +403,9 @@ class LeafDirichlet(_Leaf):
         return prior_val.item() + self._cst_prior_value
 
     def _bump(self):
-        if self._inference_mode in ("EM", "EMstoch"):
+        if self._inference_mode in ("EM", "VB-MCMC"):
             posterior_shape = self.tensor * self.tensor_update + self.prior_shape
-            # we should instead use the EMstoch option
+            # we should instead use the VB-MCMC option
         elif self._inference_mode == "VBEM":
             posterior_shape = self.posterior_shape
         self.tensor[...] = glob.xp.random.gamma(
@@ -495,36 +420,64 @@ class LeafDirichlet(_Leaf):
         tensor = self.tensor.reshape(self.tensor.shape[: self.norm_axis[0]] + (-1,))
         return glob.xp.linalg.norm(tensor, ord=2, axis=-1, **kwargs)
 
-    @cached_property
+    @property
     def tensor_has_energy(self):
         return False
 
-    def _give_update_bis(self, parent, out=None):
-        if isinstance(parent, buds.BudShape):
-            parent_idx_id = parent.get_index_id_for_children(self)
-            prior_tensor = glob.xp.zeros_like(self.tensor) + self.prior_shape
-            prior_tensor = glob.xp.zeros_like(self.tensor) + glob.sps.digamma(
-                prior_tensor.sum(self.norm_axis, keepdims=True)
-            )
+    def _give_update_alpha(self, parent, log_tensor, out=None):
+        parent_idx_id = parent.get_index_id_for_children(self)
+        update_tensor = utils.einsum(log_tensor, self.index_id, parent_idx_id, out=out)
+        if out is None:
+            return update_tensor
 
-            update_tensor = utils.einsum(
-                prior_tensor, self.index_id, parent_idx_id, out=out
-            )
-            if out is None:
-                return update_tensor
-        else:
+    def _give_update(self, parent, out):
+        if not isinstance(parent, buds.BudShape):
             raise ValueError(
                 "Class of parent argument must be wonterfact.bubs.BudShape"
             )
+        ## returns quantity e_d (cf technical report)
+        if self._inference_mode in ("EM", "VBEM") or self.n_sufficient_statistic == 0:
+            log_tensor = glob.xp.log(self.tensor)
+        else:
+            log_tensor = self.tensor_sufficient_statistic / self.n_sufficient_statistic
+        return self._give_update_alpha(parent, log_tensor, out=out)
+
+    def _give_number_of_users(self, parent, out=None):
+        """
+        Gives the number of parameters that share a same hyperparameter for each
+        hyperparameter (corresponds to $|\\phi^{-1}(d)|$ in tech report)
+        """
+        parent_idx_id = parent.get_index_id_for_children(self)
+        number_or_users = utils.einsum(
+            glob.xp.ones_like(self.tensor), self.index_id, parent_idx_id, out=out
+        )
+        if out is None:
+            return number_or_users
+
+    def _give_update_bis(self, parent, out=None):
+        if not isinstance(parent, buds.BudShape):
+            raise ValueError("'parent' must be an instance of wonterfact.bubs.BudShape")
+        parent_idx_id = parent.get_index_id_for_children(self)
+        prior_tensor = glob.xp.zeros_like(self.tensor) + self.prior_shape
+        prior_tensor = glob.xp.zeros_like(self.tensor) + glob.sps.digamma(
+            prior_tensor.sum(self.norm_axis, keepdims=True)
+        )
+
+        update_tensor = utils.einsum(
+            prior_tensor, self.index_id, parent_idx_id, out=out
+        )
+        if out is None:
+            return update_tensor
 
     def _give_update_first_iteration(self, parent, out=None):
-        if isinstance(parent, buds.BudShape):
-            tensor = np.zeros_like(self.tensor) + self.prior_shape
-            tensor = utils.exp_digamma(tensor) / utils.exp_digamma(
-                tensor.sum(self.norm_axis, keepdims=True)
-            )
-            return self._give_update_alpha(parent, tensor, out=out)
-        raise ValueError("'parent' must be an instance of wonterfact.bubs.BudShape")
+        if not isinstance(parent, buds.BudShape):
+            raise ValueError("'parent' must be an instance of wonterfact.bubs.BudShape")
+        tensor = np.zeros_like(self.tensor) + self.prior_shape
+        log_tensor = glob.xp.log(
+            utils.exp_digamma(tensor)
+            / utils.exp_digamma(tensor.sum(self.norm_axis, keepdims=True))
+        )
+        return self._give_update_alpha(parent, log_tensor, out=out)
 
     def compute_alpha_estim(self, n_iter=10):  # very slow: need research to be faster
         alpha_estim = np.ones_like(self.tensor)

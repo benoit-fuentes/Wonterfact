@@ -20,6 +20,7 @@
 """Module for all base classes used in wonterfact"""
 
 # Python System imports
+from __future__ import annotations
 from functools import cached_property
 from methodtools import lru_cache, _LruCacheWire  # allows cache decorator per instance
 import inspect
@@ -56,7 +57,9 @@ class _Node(
             base62.sign = "_"
             self.name = "n_" + base62.encode(id(self))
 
-    def census(self, nodebook=None):  # Needs to be overridden in ChildNode class.
+    def census(
+        self, nodebook: set[_Node] | None = None
+    ) -> set[_Node]:  # Needs to be overridden in ChildNode class.
         """
         Returns a single element set with itself in it.
 
@@ -81,7 +84,7 @@ class _Node(
         return True
 
     def _set_inference_mode(self, mode="EM"):
-        if mode not in ("EM", "VBEM", "EMstoch"):
+        if mode not in ("EM", "VBEM", "VB-MCMC"):
             raise ValueError("Unkwnon inference mode value")
         self._inference_mode = mode
 
@@ -142,7 +145,7 @@ class _ParentNode(_Node):
         """
         return self._list_of_children
 
-    @cached_property
+    @property
     def has_a_single_child(self):
         return len(self.list_of_children) == 1
 
@@ -236,7 +239,7 @@ class _ChildNode(_Node):
         super().__init__(**kwargs)
 
     @property
-    def list_of_parents(self):
+    def list_of_parents(self) -> list[_Node]:
         """
         Gives the list of all parent nodes.
 
@@ -250,7 +253,7 @@ class _ChildNode(_Node):
     def first_parent(self):
         return self.list_of_parents[0]
 
-    def census(self, nodebook=None):
+    def census(self, nodebook: set[_Node] | None = None):
         """
         Returns the set of all ancestor nodes (parents, parents of parents,
         etc.). Usefull to make a census of all nodes in a tree.

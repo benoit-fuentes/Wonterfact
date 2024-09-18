@@ -69,9 +69,7 @@ def _get_node_prefix(node, legend_dict, **extra_param):
         return "(+)"
 
     if isinstance(node, operators.Smoothstep):
-        return "&#223F;<sub><i>{}</i></sub>".format(
-            legend_dict[node.index_id[-1]]["letter"]
-        )
+        return "_/<sub><i>{}</i></sub>".format(legend_dict[node.index_id[-1]]["letter"])
 
     if isinstance(node, observers.PosObserver):
         integer_observations = extra_param.get("integer_observations", False)
@@ -316,7 +314,7 @@ def _draw_tree(
                         forcelabels="true",
                     )
             # special shape for hyperparameter buds
-            elif isinstance(node, buds._Bud):
+            elif isinstance(node, buds.BudShape):
                 if hasattr(node, "update_period") and node.update_period == 0:
                     peripheries = "2"
                 else:

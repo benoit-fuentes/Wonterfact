@@ -41,8 +41,6 @@ class _Operator(_DynNodeData, _ChildNode):
 
     @cached_property
     def norm_axis(self):
-        if self.tensor_has_energy:
-            return None
         norm_axis = []
         for num_idx, idx in enumerate(self.index_id):
             is_idx_in_norm_axis = next(

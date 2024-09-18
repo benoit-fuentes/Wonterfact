@@ -38,6 +38,7 @@ custom_inherit = "^2.4.1"
 python-baseconv = "^1.2.2"
 graphviz = "^0.20.3"
 methodtools = "^0.4.7"
+tqdm = "^4.66.5"
 
 [tool.poetry.group.dev]
 optional = true

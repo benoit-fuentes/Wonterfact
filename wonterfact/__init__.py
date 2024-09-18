@@ -30,7 +30,7 @@ from . import utils
 from .utils import create_filiation
 from .root import Root
 from .leaves import LeafDirichlet
-from .operators import Multiplier, Multiplexer, Integrator, Adder, Proxy
+from .operators import Multiplier, Multiplexer, Integrator, Adder, Proxy, Smoothstep
 from .observers import PosObserver, BlindObs
 from .glob_var_manager import glob
 
@@ -45,6 +45,7 @@ __all__ = [
     "RealObserver",
     "Root",
     "Integrator",
+    "Smoothstep",
     "Adder",
     "Proxy",
     "BlindObs",

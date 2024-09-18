@@ -20,18 +20,15 @@
 """Module for all buds (i.e. hyperparameter nodes) classes"""
 
 # Python System imports
-from functools import cached_property
 
 # Third-party imports
-import numpy as np
-from methodtools import lru_cache
 
 # Relative imports
 from . import utils, core_nodes
 from .glob_var_manager import glob
 
 
-class _Bud(core_nodes._DynNodeData0):
+class BudShape(core_nodes._DynNodeData0):
     """
     Mother class for the hyperparameters buds of a graphical model
     """
@@ -70,8 +67,7 @@ class _Bud(core_nodes._DynNodeData0):
             method_to_call="_give_update_first_iteration",
         )
 
-    @cached_property
-    def number_of_users(self):
+    def get_number_of_users(self):
         """
         Gives the number of parameters that share a same hyperparameter for each
         hyperparameter (corresponds to $|\\phi^{-1}(d)|$ in tech report)
@@ -83,12 +79,6 @@ class _Bud(core_nodes._DynNodeData0):
         )
         return number
 
-    def get_update_bis(self, tensor_to_fill):
-        self._compute_tensor_update_aux2(
-            tensor_to_fill=tensor_to_fill,
-            method_to_call="_give_update_bis",
-        )
-
     def compute_tensor_update_online(self, learning_rate=1.0):
         if self.new_born:
             self._first_iteration()
@@ -98,15 +88,19 @@ class _Bud(core_nodes._DynNodeData0):
         self.tensor_update *= learning_rate
         self.tensor_update += past_tensor_update
 
-
-class BudShape(_Bud):
     @property
     def tensor_has_energy(self):
         return False
 
     def update_tensor(self):
-        self.get_update_bis(tensor_to_fill=self.tensor_update_bis)
+        # tensor_update_bis corresponds to the prior hyperparamters
+        # tensor_update to the sufficient statistic (e^T in the technical report)
+        self._compute_tensor_update_aux2(
+            tensor_to_fill=self.tensor_update_bis,
+            method_to_call="_give_update_bis",
+        )
+        number_of_users = self.get_number_of_users()
         utils.inverse_digamma(
-            (self.tensor_update_bis + self.tensor_update) / self.number_of_users,
+            (self.tensor_update_bis + self.tensor_update) / number_of_users,
             out=self.tensor,
         )

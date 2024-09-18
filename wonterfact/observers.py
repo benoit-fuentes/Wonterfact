@@ -164,7 +164,7 @@ class PosObserver(
 
     def _get_data_fitting(self):
         """
-        Returns minus log-likelihood of Poisson distribution
+        Returns minus log-likelihood of Multinomial distribution
         """
         lh = glob.xp.zeros_like(self.tensor)
         for parent in self.list_of_parents:
@@ -174,7 +174,7 @@ class PosObserver(
             lh -= glob.sps.gammaln(my_tensor + 1)
         if self.mask_data is not None:
             raise NotImplementedError
-        return -lh.sum().item() - glob.sps.gammaln(self.number_of_drawings).sum()
+        return -lh.sum().item() - glob.sps.gammaln(self.number_of_drawings + 1).sum()
 
 
 class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):
@@ -189,7 +189,7 @@ class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):
         return out
 
     def _get_data_fitting(self):
-        if self._inference_mode == "EM":
+        if self._inference_mode in ("EM", "VB-MCMC"):
             return 0
         elif self._inference_mode == "VBEM":
             total_energy = 0

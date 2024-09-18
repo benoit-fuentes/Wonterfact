@@ -22,6 +22,12 @@
 # Python System imports
 import time
 from functools import cached_property
+from typing import Literal
+
+# Third-party imports
+import numpy as np
+import logging
+from tqdm import tqdm
 
 # Relative imports
 from .glob_var_manager import glob
@@ -29,21 +35,17 @@ from .core_nodes import _ChildNode, _DynNodeData
 from . import buds
 from . import graphviz
 
-# Third-party imports
-import numpy as np
-import logging
-
 
 class Root(_ChildNode):
     """
     Class for root node of a wonterfact tree.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         """
         Parameters
         ----------
-        inference_mode : 'EM' of 'VBEM', optional, default 'EM
+        inference_mode : 'EM', 'VBEM', 'VB-MCMC', optional, default 'EM'
             Indicates wether the inference algorithm should be the Expectation-
             Maximization (EM) algorithm or the Variational Bayes EM (VBEM)
             algorithm.
@@ -109,7 +111,9 @@ class Root(_ChildNode):
             Information is given to the logger every ``verbose_iter`` iterations.
         """
         # parse kwargs
-        self.inference_mode = kwargs.pop("inference_mode", "EM")
+        self._inference_mode: Literal["EM", "VBEM", "MCMC-VB"] = kwargs.pop(
+            "inference_mode", "EM"
+        )
         self.cost_computation_iter = kwargs.pop("cost_computation_iter", 0)
         self.stop_estim_threshold = kwargs.pop("stop_estim_threshold", 0)
         self.update_type = kwargs.pop("update_type", "parabolic")
@@ -126,6 +130,17 @@ class Root(_ChildNode):
         self.verbose_iter = kwargs.pop("verbose_iter", 0)
         super().__init__(**kwargs)
         self.reset()
+
+    @property
+    def inference_mode(self):
+        return self._inference_mode
+
+    def set_tree_inference_mode(self, mode="EM"):
+        self.tree_traversal(
+            "_set_inference_mode",
+            mode="top-down",
+            method_input=((), dict(mode=mode)),
+        )
 
     def reset(self):
         # fixed attributes
@@ -191,7 +206,7 @@ class Root(_ChildNode):
             and ``update_offset`` in Nodes docstring)
         type_filter_list : sequence or None, optional, default None
             list of classes for which the method should not be called, e.g.
-            [wonterfact.buds._Bud, ]
+            [wonterfact.buds.BudShape, ]
         """
         method_input = method_input or ((), {})
         type_filter_list = type_filter_list or []
@@ -255,11 +270,7 @@ class Root(_ChildNode):
             )
 
     def _first_iteration(self, check_model_validity):
-        self.tree_traversal(
-            "_set_inference_mode",
-            mode="top-down",
-            method_input=((), dict(mode=self.inference_mode)),
-        )
+        self.set_tree_inference_mode(self.inference_mode)
         np.random.seed(self.seed)
         glob.xp.random.seed(self.seed)
         self.tree_traversal("_initialization", mode="top-down")
@@ -287,7 +298,9 @@ class Root(_ChildNode):
         else:
             raise ValueError("Unknown `update_type`")
 
-    def estimate_param(self, n_iter, check_model_validity=True, clear_cache=True):
+    def estimate_param(
+        self, n_iter, check_model_validity=True, clear_cache=True, callback=None
+    ):
         """
         Run parameters estimation algorithm.
 
@@ -315,7 +328,7 @@ class Root(_ChildNode):
         if clear_cache:
             self.clear_all_nodes_cache()
         try:
-            for __ in range(n_iter):
+            for __ in tqdm(range(n_iter), disable=True):
                 if self.current_iter == 0:
                     self._first_iteration(check_model_validity=check_model_validity)
                 else:
@@ -332,6 +345,8 @@ class Root(_ChildNode):
                     self.verbose(max_iter)
 
                 self.need_a_bump = self._draw_need_a_dump(self.current_iter)
+                if callback:
+                    callback(self)
                 if self._stop_condition():
                     break
 
@@ -342,7 +357,7 @@ class Root(_ChildNode):
                 method_input=((), {"update_type": "no_update_for_leaves"}),
                 iteration_number=self.current_iter,
                 type_filter_list=[
-                    buds._Bud,
+                    buds.BudShape,
                 ],
             )
             self.logger.info(
@@ -363,7 +378,7 @@ class Root(_ChildNode):
             mode="bottom-up",
             iteration_number=self.current_iter,
             type_filter_list=[
-                buds._Bud,
+                buds.BudShape,
             ],
         )
         self.tree_traversal(
@@ -371,7 +386,7 @@ class Root(_ChildNode):
             mode="top-down",
             iteration_number=self.current_iter,
             type_filter_list=[
-                buds._Bud,
+                buds.BudShape,
             ],
         )
 
@@ -392,7 +407,7 @@ class Root(_ChildNode):
             method_input=((), method_kwarg),
             iteration_number=self.current_iter,
             type_filter_list=[
-                buds._Bud,
+                buds.BudShape,
             ],
         )
         data_fitting = self._get_data_fitting()
@@ -411,7 +426,7 @@ class Root(_ChildNode):
             mode="top-down",
             iteration_number=self.current_iter,
             type_filter_list=[
-                buds._Bud,
+                buds.BudShape,
             ],
         )
         if self.current_iter == self.acceleration_start_iter + 2:
@@ -430,7 +445,7 @@ class Root(_ChildNode):
                 mode="top-down",
                 iteration_number=self.current_iter,
                 type_filter_list=[
-                    buds._Bud,
+                    buds.BudShape,
                 ],
             )
             current_cost = self.get_cost_func()
@@ -538,7 +553,7 @@ class Root(_ChildNode):
                             method_input=((), method_kwarg),
                             iteration_number=self.current_iter,
                             type_filter_list=[
-                                buds._Bud,
+                                buds.BudShape,
                             ],
                         )
                     self.parab_acc_state["step_distrib"][
@@ -582,7 +597,7 @@ class Root(_ChildNode):
             mode="top-down",
             iteration_number=self.current_iter,
             type_filter_list=[
-                buds._Bud,
+                buds.BudShape,
             ],
         )
         if self.update_type == "parabolic":
@@ -622,7 +637,7 @@ class Root(_ChildNode):
         for bud in self.nodes_by_level[0]:
             if bud.update_period != 0:
                 bud.compute_tensor_update_online(learning_rate=learning_rate)
-        for __ in range(n_iter):
+        for __ in tqdm(range(n_iter), disable=True):
             for bud in self.nodes_by_level[0]:
                 if bud.update_period != 0:
                     bud.update_tensor()
@@ -715,9 +730,9 @@ class Root(_ChildNode):
         fileformat=None,
         filename=None,
         legend_dict=None,
-        show_prior_nodes=False,
+        show_prior_nodes=True,
         view=True,
-        show_node_names=False,
+        show_node_names=True,
         integer_observations=False,
         show_root=False,
     ):
