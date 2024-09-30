@@ -95,9 +95,7 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
         self.constraint_max_iter = constraint_max_iter
         self.prior_accelerator = prior_accelerator
         if self.constraint_coeffs is not None:
-            self.constraint_coeffs = glob.xp.array(
-                self.constraint_coeffs, dtype=glob.float
-            )
+            self.constraint_coeffs = glob.xp.array(self.constraint_coeffs, dtype=glob.float)
         self._set_inference_mode()
         super().__init__(**kwargs)
         if prior_shape is not None:
@@ -110,7 +108,7 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
     def min_val(self):
         if self._inference_mode == "VBEM":
             return 0.02
-        return 1e-20
+        return 0.01
 
     @property
     def norm_axis(self):
@@ -159,10 +157,9 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
     def prior_shape(self):
         if self.shape_parent is not None:
             return self._get_prior_arr(self.shape_parent)
-        else:
-            return glob.xp.array(1.0)
+        return glob.xp.array(1.0)
 
-    def _get_prior_arr(self, prior_parent):
+    def _get_prior_arr(self, prior_parent: buds.BudShape):
         transpose, sl = utils.get_transpose_and_slice(
             prior_parent.get_index_id_for_children(self), self.index_id
         )
@@ -170,9 +167,7 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
 
     def _clip_tensor_min_value(self):
         if self._inference_mode == "VBEM":
-            utils.clip_inplace(
-                self.posterior_shape, a_min=self.min_val, backend=glob.backend
-            )
+            utils.clip_inplace(self.posterior_shape, a_min=self.min_val, backend=glob.backend)
         else:
             utils.clip_inplace(self.tensor, a_min=self.min_val, backend=glob.backend)
 
@@ -203,8 +198,8 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
             raise NotImplementedError
 
         if self._inference_mode == "VB-MCMC" and self.variance_factor != 0:
-            self.tensor[...] = glob.xp.random.gamma(self.tensor - 0.5, 1)
-            # self.tensor[...] = glob.xp.random.gamma(self.tensor, 1)
+            # self.tensor[...] = glob.xp.random.gamma(self.tensor - 0.5, 1)
+            self.tensor[...] = glob.xp.random.gamma(self.tensor, 1)
             self._clip_tensor_min_value()
 
         if self._inference_mode in ("EM", "VB-MCMC") or self.update_period == 0:
@@ -223,9 +218,9 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
                 self.tensor /= norm_tensor
         elif self._inference_mode in "VBEM":
             norm_tensor = self.posterior_shape.sum(axis=self.norm_axis, keepdims=True)
-            self.tensor[...] = utils.exp_digamma(
-                self.posterior_shape
-            ) / utils.exp_digamma(norm_tensor)
+            self.tensor[...] = utils.exp_digamma(self.posterior_shape) / utils.exp_digamma(
+                norm_tensor
+            )
 
     def _regular_update_tensor(self):
         if self.prior_accelerator is not None:
@@ -248,7 +243,10 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
 
         if self._inference_mode == "VB-MCMC":
             self.tensor *= tensor_update
-            self.tensor += self.prior_shape
+            self.tensor += self.prior_shape - 0.5
+            # self.tensor += self.prior_shape
+            # self.tensor[...] = utils.exp_digamma(self.tensor)  # on va juste tester...
+            self._clip_tensor_min_value()
 
         if self._inference_mode == "VBEM":
             self.posterior_shape[...] = self.tensor * tensor_update
@@ -322,16 +320,16 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
     def _prior_alpha_all_one(self):
         return (self.shape_parent is None) or (self.prior_shape == 1).all()
 
-    @cached_property
-    def shape_parent(self):
-        return next(
-            (
-                parent
-                for parent in self.list_of_parents
-                if isinstance(parent, buds.BudShape)
-            ),
+    @property
+    def shape_parent(self) -> buds.BudShape:
+        parent = next(
+            (parent for parent in self.list_of_parents if isinstance(parent, buds.BudShape)),
             None,
         )
+        if not parent:
+            msg = "No shape parent is defined"
+            raise AttributeError(msg)
+        return parent
 
     def get_posterior_shape(self, force_numpy=False):
         """
@@ -356,9 +354,7 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
                 - glob.sps.gammaln(prior_shape).sum()
             )
         elif self._inference_mode == "VBEM":
-            prior_shape = (
-                glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
-            )
+            prior_shape = glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
             cst_prior = (
                 glob.sps.gammaln(prior_shape.sum(self.norm_axis, keepdims=True)).sum()
                 - glob.sps.gammaln(prior_shape).sum()
@@ -376,25 +372,17 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
             else:
                 prior_val = utils.xlogy(self.prior_shape - 1, self.tensor).sum()
         elif self._inference_mode == "VBEM":
-            prior_shape = (
-                glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
-            )
+            prior_shape = glob.xp.zeros(self.tensor.shape, dtype=glob.float) + self.prior_shape
             prior_val = (
                 glob.sps.gammaln(self.posterior_shape).sum()
-                - (
-                    glob.sps.gammaln(
-                        self.posterior_shape.sum(self.norm_axis, keepdims=True)
-                    )
-                ).sum()
+                - (glob.sps.gammaln(self.posterior_shape.sum(self.norm_axis, keepdims=True))).sum()
             )
             prior_val -= (
                 (self.posterior_shape - prior_shape)
                 * (
                     glob.xp.log(utils.exp_digamma(self.posterior_shape))
                     - glob.xp.log(
-                        utils.exp_digamma(
-                            self.posterior_shape.sum(self.norm_axis, keepdims=True)
-                        )
+                        utils.exp_digamma(self.posterior_shape.sum(self.norm_axis, keepdims=True))
                     )
                 )
             ).sum()
@@ -408,9 +396,7 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
             # we should instead use the VB-MCMC option
         elif self._inference_mode == "VBEM":
             posterior_shape = self.posterior_shape
-        self.tensor[...] = glob.xp.random.gamma(
-            posterior_shape, glob.xp.ones_like(self.tensor)
-        )
+        self.tensor[...] = glob.xp.random.gamma(posterior_shape, glob.xp.ones_like(self.tensor))
         self.tensor /= self.tensor.sum(axis=self.norm_axis, keepdims=True)
 
     def get_l2_norm(self, **kwargs):
@@ -429,12 +415,12 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
         update_tensor = utils.einsum(log_tensor, self.index_id, parent_idx_id, out=out)
         if out is None:
             return update_tensor
+        return None
 
     def _give_update(self, parent, out):
         if not isinstance(parent, buds.BudShape):
-            raise ValueError(
-                "Class of parent argument must be wonterfact.bubs.BudShape"
-            )
+            msg = "Class of parent argument must be wonterfact.bubs.BudShape"
+            raise TypeError(msg)
         ## returns quantity e_d (cf technical report)
         if self._inference_mode in ("EM", "VBEM") or self.n_sufficient_statistic == 0:
             log_tensor = glob.xp.log(self.tensor)
@@ -453,29 +439,30 @@ class LeafDirichlet(core_nodes._DynNodeData, core_nodes._ChildNode):
         )
         if out is None:
             return number_or_users
+        return None
 
     def _give_update_bis(self, parent, out=None):
         if not isinstance(parent, buds.BudShape):
-            raise ValueError("'parent' must be an instance of wonterfact.bubs.BudShape")
+            msg = "'parent' must be an instance of wonterfact.bubs.BudShape"
+            raise TypeError(msg)
         parent_idx_id = parent.get_index_id_for_children(self)
         prior_tensor = glob.xp.zeros_like(self.tensor) + self.prior_shape
         prior_tensor = glob.xp.zeros_like(self.tensor) + glob.sps.digamma(
             prior_tensor.sum(self.norm_axis, keepdims=True)
         )
 
-        update_tensor = utils.einsum(
-            prior_tensor, self.index_id, parent_idx_id, out=out
-        )
+        update_tensor = utils.einsum(prior_tensor, self.index_id, parent_idx_id, out=out)
         if out is None:
             return update_tensor
+        return None
 
     def _give_update_first_iteration(self, parent, out=None):
         if not isinstance(parent, buds.BudShape):
-            raise ValueError("'parent' must be an instance of wonterfact.bubs.BudShape")
+            msg = "'parent' must be an instance of wonterfact.bubs.BudShape"
+            raise TypeError(msg)
         tensor = np.zeros_like(self.tensor) + self.prior_shape
         log_tensor = glob.xp.log(
-            utils.exp_digamma(tensor)
-            / utils.exp_digamma(tensor.sum(self.norm_axis, keepdims=True))
+            utils.exp_digamma(tensor) / utils.exp_digamma(tensor.sum(self.norm_axis, keepdims=True))
         )
         return self._give_update_alpha(parent, log_tensor, out=out)
 

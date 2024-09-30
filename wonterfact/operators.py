@@ -23,7 +23,6 @@
 from functools import cached_property
 
 # Third-party imports
-
 # Relative imports
 from . import utils
 from .core_nodes import _ChildNode, _DynNodeData
@@ -62,9 +61,8 @@ class Proxy(_Operator):
     """
     A proxy class to any node.
 
-    Can be useful when one wants a parent and a child being linked several
-    times (which is not possible straightforward). A proxy can have only one
-    parent.
+    Can be useful when one wants to link a parent and a child several times (which is not possible
+    straightforward). A proxy can have only one parent.
     """
 
     # TODO: compatible with Mutliplexer as child
@@ -76,34 +74,27 @@ class Proxy(_Operator):
         if out is None:
             return self.tensor_update
         out[...] = self.tensor_update
+        return None
 
     def _initialization(self):
         self.tensor = self.first_parent.get_tensor_for_children(self)
         if not glob.xp.may_share_memory(self.tensor, self.first_parent.tensor):
-            raise ValueError(
-                """A Proxy's tensor should be a view to its parent's:
+            msg = """A Proxy's tensor should be a view to its parent's:
                 I guess you cannot use this 'slice_for_child'"""
-            )
+            raise ValueError(msg)
         self.tensor_update = glob.xp.zeros_like(self.tensor)
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
         if child is not None:
             if kwargs.get("slice_for_child", Ellipsis) != Ellipsis:
-                raise ValueError(
-                    "`slice_for_child` argument cannot be specified when parent is a {} object".format(
-                        type(self)
-                    )
-                )
-            if kwargs.get("strides_for_child", None) != None:
-                raise ValueError(
-                    "`strides_for_child` argument cannot be specified when parent is a {} object".format(
-                        type(self)
-                    )
-                )
+                msg = f"`slice_for_child` argument cannot be specified when parent is a {type(self)} object"
+                raise ValueError(msg)
+            if kwargs.get("strides_for_child", None) is not None:
+                msg = f"`strides_for_child` argument cannot be specified when parent is a {type(self)} object"
+                raise ValueError(msg)
             if isinstance(child, Multiplexer):
-                raise ValueError(
-                    "Proxy object cannot be a parent of Multiplexer object."
-                )
+                msg = "Proxy object cannot be a parent of Multiplexer object."
+                raise ValueError(msg)
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
 
@@ -156,9 +147,7 @@ class Multiplier(_Operator):
             ]
         ] + [self.index_id]
 
-        utils.einconv(
-            *input_einconv, out=self.tensor[...], conv_idx_list=self.conv_idx_ids
-        )
+        utils.einconv(*input_einconv, out=self.tensor[...], conv_idx_list=self.conv_idx_ids)
 
     def _bump(self, **kwargs):
         self._update_tensor()
@@ -248,10 +237,7 @@ class Multiplier(_Operator):
                 "Leaf carrying energy) upstream.".format(self)
             )
         set_of_idx = set.union(
-            *(
-                set(parent.get_index_id_for_children(self))
-                for parent in self.list_of_parents
-            )
+            *(set(parent.get_index_id_for_children(self)) for parent in self.list_of_parents)
         )
         set_of_idx.update(self.index_id)
         dict_idx = {idx: {} for idx in set_of_idx}
@@ -299,8 +285,9 @@ class Multiplier(_Operator):
             ]
             if len(normalized_parent_no_conv_list) > 1:
                 raise ValueError(
-                    "Model is wrong at {} level. An index_id cannot be "
-                    "normalized twice".format(self)
+                    "Model is wrong at {} level. An index_id cannot be " "normalized twice".format(
+                        self
+                    )
                 )
             # if there is a parent with energy, idx must be normalized once
             if parent_with_energy_list and not normalized_parent_list:
@@ -328,9 +315,7 @@ class Multiplier(_Operator):
         einsum_arg = []
         for parent in self.list_of_parents:
             index_id = tuple(parent.get_index_id_for_children(self))
-            index_id_final = tuple(
-                idx for idx in index_id if idx not in self.conv_idx_ids
-            )
+            index_id_final = tuple(idx for idx in index_id if idx not in self.conv_idx_ids)
             tensor = parent.get_tensor_for_children(self)
             einsum_arg.append(utils.einsum(tensor, index_id, index_id_final))
             einsum_arg.append(index_id_final)
@@ -385,9 +370,7 @@ class Multiplexer(_Operator):
                     )
                 )
             if isinstance(parent, Proxy):
-                raise ValueError(
-                    "Proxy object cannot be a parent of Multiplexer object."
-                )
+                raise ValueError("Proxy object cannot be a parent of Multiplexer object.")
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
     def _give_update(self, parent, out=None):
@@ -397,18 +380,8 @@ class Multiplexer(_Operator):
         out[...] = update
 
     def _initialization(self):
-        if (
-            len(
-                set(
-                    parent.get_index_id_for_children(self)
-                    for parent in self.list_of_parents
-                )
-            )
-            > 1
-        ):
-            raise ValueError(
-                "All parents of a multiplexer object must have the same index_id"
-            )
+        if len(set(parent.get_index_id_for_children(self) for parent in self.list_of_parents)) > 1:
+            raise ValueError("All parents of a multiplexer object must have the same index_id")
 
         multiplexer_idx_set = set(self.index_id) - set(
             self.list_of_parents[0].get_index_id_for_children(self)
@@ -430,10 +403,7 @@ class Multiplexer(_Operator):
             )
             for num_parent, parent in enumerate(self.list_of_parents):
                 self.parent_slicing_dict.update(
-                    {
-                        parent: (slice(None),) * multiplexer_idx_number
-                        + (num_parent, Ellipsis)
-                    }
+                    {parent: (slice(None),) * multiplexer_idx_number + (num_parent, Ellipsis)}
                 )
 
         # if concatenation is performed along an existing axis
@@ -444,17 +414,13 @@ class Multiplexer(_Operator):
 
             # tensor definition (concatenation of parents' tensors)
             self.tensor = glob.xp.concatenate(
-                tuple(
-                    parent.get_tensor_for_children(self)
-                    for parent in self.list_of_parents
-                ),
+                tuple(parent.get_tensor_for_children(self) for parent in self.list_of_parents),
                 axis=multiplexer_idx_number,
             )
             index_init = 0
             for num_parent, parent in enumerate(self.list_of_parents):
                 index_end = (
-                    index_init
-                    + parent.get_tensor_for_children(self).shape[multiplexer_idx_number]
+                    index_init + parent.get_tensor_for_children(self).shape[multiplexer_idx_number]
                 )
                 self.parent_slicing_dict.update(
                     {
@@ -464,9 +430,7 @@ class Multiplexer(_Operator):
                 )
                 index_init = index_end
         else:
-            raise ValueError(
-                "index_id problem between multiplexer object and its parents"
-            )
+            raise ValueError("index_id problem between multiplexer object and its parents")
 
         if self.tensor_update is None and self.update_period != 0:
             self.tensor_update = glob.xp.ones_like(self.tensor)
@@ -535,12 +499,8 @@ class Integrator(_Operator):
 
     def _update_tensor(self, **kwargs):
         direction = -1 if self.backward_integration else 1
-        parent_tensor = (
-            self.first_parent.get_tensor_for_children(self) * self._normalization_coef
-        )
-        utils.cumsum_last_axis(
-            parent_tensor[..., ::direction], self.tensor[..., ::direction]
-        )
+        parent_tensor = self.first_parent.get_tensor_for_children(self) * self._normalization_coef
+        utils.cumsum_last_axis(parent_tensor[..., ::direction], self.tensor[..., ::direction])
 
     def _give_update(self, parent, out=None):
         direction = 1 if self.backward_integration else -1
@@ -553,9 +513,7 @@ class Integrator(_Operator):
         out[...] = self.update_to_give
 
     def _initialization(self):
-        self.tensor = glob.xp.empty_like(
-            self.first_parent.get_tensor_for_children(self)
-        )
+        self.tensor = glob.xp.empty_like(self.first_parent.get_tensor_for_children(self))
         self._update_tensor()
         if self.update_period != 0:
             self.full_tensor_update = glob.xp.zeros_like(self.tensor)
@@ -566,13 +524,9 @@ class Integrator(_Operator):
     def _normalization_coef(self):
         parent_tensor = self.first_parent.get_tensor_for_children(self)
         if self.backward_integration:
-            norm_coef = 1.0 / glob.xp.arange(
-                1, parent_tensor.shape[-1] + 1, dtype=glob.float
-            )
+            norm_coef = 1.0 / glob.xp.arange(1, parent_tensor.shape[-1] + 1, dtype=glob.float)
         else:
-            norm_coef = 1.0 / glob.xp.arange(
-                parent_tensor.shape[-1], 0, -1, dtype=glob.float
-            )
+            norm_coef = 1.0 / glob.xp.arange(parent_tensor.shape[-1], 0, -1, dtype=glob.float)
         return norm_coef
 
     def _check_model_validity(self):
@@ -619,9 +573,7 @@ class Adder(_Operator):
                 raise ValueError(
                     "Please manually instantiate a tensor for this Adder (cannot infer the proper shape)"
                 )
-            self.tensor = glob.xp.zeros_like(
-                self.parent_full_shape.get_tensor_for_children(self)
-            )
+            self.tensor = glob.xp.zeros_like(self.parent_full_shape.get_tensor_for_children(self))
         self._update_tensor()
         if self.update_period != 0:
             self.tensor_update = glob.xp.zeros_like(self.tensor)
@@ -685,9 +637,7 @@ class Smoothstep(_Operator):
         super().__init__(**kwargs)
 
     def _initialization(self):
-        self.tensor = glob.xp.empty_like(
-            self.first_parent.get_tensor_for_children(self)
-        )
+        self.tensor = glob.xp.empty_like(self.first_parent.get_tensor_for_children(self))
         self._update_tensor()
         if self.update_period != 0:
             self.full_tensor_update = glob.xp.zeros_like(self.tensor)

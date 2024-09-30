@@ -21,23 +21,22 @@
 
 # Python System imports
 from __future__ import annotations
-from functools import cached_property
-from methodtools import lru_cache, _LruCacheWire  # allows cache decorator per instance
+
 import inspect
+from functools import cached_property
+
+# Third-party imports
+import numpy as np
+from baseconv import base62
+from custom_inherit import DocInheritMeta
+from methodtools import _LruCacheWire, lru_cache  # allows cache decorator per instance
 
 # Relative imports
 from . import utils
 from .glob_var_manager import glob
 
-# Third-party imports
-import numpy as np
-from custom_inherit import DocInheritMeta
-from baseconv import base62
 
-
-class _Node(
-    metaclass=DocInheritMeta(style="numpy_with_merge", include_special_methods=True)
-):
+class _Node(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_methods=True)):
     """
     Base class of all nodes in a wonterfact tree,  i.e. the graphical
     representation of a tensor factorization model.
@@ -239,7 +238,7 @@ class _ChildNode(_Node):
         super().__init__(**kwargs)
 
     @property
-    def list_of_parents(self) -> list[_Node]:
+    def list_of_parents(self) -> list[_ParentNode]:
         """
         Gives the list of all parent nodes.
 
@@ -458,8 +457,9 @@ class _DynNodeData0(_NodeData):
                 for ii in range(len(tensor.strides) - 1)
             ):
                 raise ValueError(
-                    "Strides of {}'s inner tensor should always be in descending"
-                    "order".format(self)
+                    "Strides of {}'s inner tensor should always be in descending" "order".format(
+                        self
+                    )
                 )
             return glob.as_strided(
                 tensor,
@@ -470,9 +470,7 @@ class _DynNodeData0(_NodeData):
             return self.get_tensor(force_numpy=force_numpy, raw_tensor=raw_tensor)
         tensor_to_give = tensor[self.slicing_for_children_dict[child]]
         if self.reshape_for_children_dict[child]:
-            tensor_to_give = tensor_to_give.reshape(
-                self.reshape_for_children_dict[child]
-            )
+            tensor_to_give = tensor_to_give.reshape(self.reshape_for_children_dict[child])
         return self.cast_array(tensor_to_give, force_numpy=force_numpy)
 
     @lru_cache(maxsize=64)
@@ -502,10 +500,7 @@ class _DynNodeData0(_NodeData):
             return True
         should_update = (
             self.update_period != 0
-            and (
-                (iteration_number - self.update_offset) % self.update_period
-                < self.update_succ
-            )
+            and ((iteration_number - self.update_offset) % self.update_period < self.update_succ)
             and iteration_number >= self.update_offset
         )
         all_children_should_update = all(
@@ -590,9 +585,7 @@ class _DynNodeData0(_NodeData):
         cumsum=True,
         method_to_call="_give_update",
     ):
-        tensor_to_fill = (
-            self.tensor_update if tensor_to_fill is None else tensor_to_fill
-        )
+        tensor_to_fill = self.tensor_update if tensor_to_fill is None else tensor_to_fill
         child_slicing = self.slicing_for_children_dict[child]
         if value_to_force is None:
             fill_tensor = child.__getattribute__(method_to_call)(self)
@@ -617,9 +610,7 @@ class _DynNodeData0(_NodeData):
                 tensor_to_fill[child_slicing] = fill_tensor
 
     def _compute_tensor_update_aux2(self, tensor_to_fill, method_to_call):
-        if self.has_a_single_child and self.no_tensor_transform_for_child(
-            self.first_child
-        ):
+        if self.has_a_single_child and self.no_tensor_transform_for_child(self.first_child):
             self.first_child.__getattribute__(method_to_call)(self, out=tensor_to_fill)
         else:
             if self.are_all_tensor_coefs_linked_to_at_least_one_child:
@@ -706,9 +697,7 @@ class _DynNodeData(_DynNodeData0):
         num_axis = 0
         for sl in explicit_slice:
             if isinstance(sl, int):
-                norm_axis_list = [
-                    val - 1 if val > num_axis else val for val in norm_axis_list
-                ]
+                norm_axis_list = [val - 1 if val > num_axis else val for val in norm_axis_list]
             else:
                 num_axis += 1
         # then the reshape for child
@@ -735,9 +724,7 @@ class _DynNodeData(_DynNodeData0):
                 "to bypass the validity check of the model."
             )
         cumprod_shape_2 = np.cumprod(shape_for_child)
-        cumprod_intersect = sorted(
-            list(set(cumprod_shape_1).intersection(cumprod_shape_2))
-        )
+        cumprod_intersect = sorted(list(set(cumprod_shape_1).intersection(cumprod_shape_2)))
         list_of_clust1, list_of_clust2 = [], []
         min_dim = 0
         for max_dim in cumprod_intersect:

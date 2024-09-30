@@ -20,20 +20,25 @@
 """Module for Root class"""
 
 # Python System imports
+from __future__ import annotations
+
+import logging
 import time
 from functools import cached_property
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 # Third-party imports
 import numpy as np
-import logging
 from tqdm import tqdm
 
 # Relative imports
+from . import buds, graphviz
+from .core_nodes import _ChildNode, _DynNodeData, _Node
 from .glob_var_manager import glob
-from .core_nodes import _ChildNode, _DynNodeData
-from . import buds
-from . import graphviz
+from .leaves import LeafDirichlet
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class Root(_ChildNode):
@@ -111,18 +116,14 @@ class Root(_ChildNode):
             Information is given to the logger every ``verbose_iter`` iterations.
         """
         # parse kwargs
-        self._inference_mode: Literal["EM", "VBEM", "MCMC-VB"] = kwargs.pop(
-            "inference_mode", "EM"
-        )
+        self._inference_mode: Literal["EM", "VBEM", "MCMC-VB"] = kwargs.pop("inference_mode", "EM")
         self.cost_computation_iter = kwargs.pop("cost_computation_iter", 0)
         self.stop_estim_threshold = kwargs.pop("stop_estim_threshold", 0)
         self.update_type = kwargs.pop("update_type", "parabolic")
         self.parabolic_acc_scale_factor = kwargs.pop("parabolic_acc_scale_factor", 0.1)
         self.parabolic_acc_common_ratio = kwargs.pop("parabolic_acc_common_ratio", 1.5)
         self.acceleration_start_iter = kwargs.pop("acceleration_start_iter", 200)
-        self.parabolic_forget_distrib_param = kwargs.pop(
-            "parabolic_forget_distrib_param", 0.95
-        )
+        self.parabolic_forget_distrib_param = kwargs.pop("parabolic_forget_distrib_param", 0.95)
         self.annealing_proba_init = kwargs.pop("annealing_proba_init", 0)
         self.annealing_proba_iter_const = kwargs.pop("annealing_proba_iter_const", 1000)
         self.seed = kwargs.pop("seed", None)
@@ -139,7 +140,7 @@ class Root(_ChildNode):
         self.tree_traversal(
             "_set_inference_mode",
             mode="top-down",
-            method_input=((), dict(mode=mode)),
+            method_input=((), {"mode": mode}),
         )
 
     def reset(self):
@@ -231,9 +232,7 @@ class Root(_ChildNode):
             try:
                 node.__getattribute__(method_name)(*method_input[0], **method_input[1])
             except Exception as exception:
-                extra_info = "\n Error raised by {} during call of '{}'".format(
-                    node, method_name
-                )
+                extra_info = "\n Error raised by {} during call of '{}'".format(node, method_name)
                 raise type(exception)(str(exception) + extra_info)
 
     @cached_property
@@ -245,29 +244,36 @@ class Root(_ChildNode):
         list_of_all_nodes = self.census()
         nodes_by_level = {}
         for level in range(self.level + 1):
-            nodes_by_level[level] = [
-                node for node in list_of_all_nodes if node.level == level
-            ]
+            nodes_by_level[level] = [node for node in list_of_all_nodes if node.level == level]
         return nodes_by_level
 
     @cached_property
-    def node_ids_set(self):
-        return set(node.name for node in self.census())
+    def node_ids_set(self) -> set[_Node]:
+        return {node.name for node in self.census()}
 
     @cached_property
-    def nodes_by_id(self):
+    def nodes_by_id(self) -> dict[str, _Node]:
         list_of_all_nodes = self.census()
         if len(self.node_ids_set) != len(list_of_all_nodes):
-            raise ValueError("Several nodes have the same ID")
+            msg = "Several nodes have the same ID"
+            raise ValueError(msg)
         return {node.name: node for node in list_of_all_nodes}
 
+    def get_leaf(self, name: str) -> LeafDirichlet:
+        leaf = self.nodes_by_id.get(name, None)
+        if not leaf:
+            msg = "Unknown leaf"
+            raise ValueError(msg)
+        if not isinstance(leaf, LeafDirichlet):
+            msg = f"Node with name '{name}' is not a leaf"
+            raise TypeError(msg)
+        return leaf
+
     def __getattr__(self, name):
-        if name in self.node_ids_set:
-            return self.nodes_by_id[name]
-        else:
-            raise AttributeError(
-                "'{}' object has no attribute '{}'".format(type(self).__name__, name)
-            )
+        if name not in self.node_ids_set:
+            msg = f"'{type(self).__name__}' object has no attribute '{name}'"
+            raise AttributeError(msg)
+        return self.nodes_by_id[name]
 
     def _first_iteration(self, check_model_validity):
         self.set_tree_inference_mode(self.inference_mode)
@@ -280,10 +286,7 @@ class Root(_ChildNode):
 
     def _regular_iteration(self):
         self.time_init = time.time()
-        if (
-            self.current_iter < self.acceleration_start_iter
-            or self.update_type == "regular"
-        ):
+        if self.current_iter < self.acceleration_start_iter or self.update_type == "regular":
             self._make_one_step()
             if self.need_a_bump:
                 self._launch_bump()
@@ -299,7 +302,11 @@ class Root(_ChildNode):
             raise ValueError("Unknown `update_type`")
 
     def estimate_param(
-        self, n_iter, check_model_validity=True, clear_cache=True, callback=None
+        self,
+        n_iter,
+        check_model_validity=True,
+        clear_cache=True,
+        callback: Callable[[Root], None] | None = None,
     ):
         """
         Run parameters estimation algorithm.
@@ -360,9 +367,7 @@ class Root(_ChildNode):
                     buds.BudShape,
                 ],
             )
-            self.logger.info(
-                "Parameter estimation stopped by user, finishing current iteration."
-            )
+            self.logger.info("Parameter estimation stopped by user, finishing current iteration.")
             raise KeyboardInterrupt
 
     def _stop_condition(self):
@@ -392,9 +397,7 @@ class Root(_ChildNode):
 
     def _draw_need_a_dump(self, num_iter):
         ran = np.random.rand()
-        if ran < self.annealing_proba_init * np.exp(
-            -num_iter / self.annealing_proba_iter_const
-        ):
+        if ran < self.annealing_proba_init * np.exp(-num_iter / self.annealing_proba_iter_const):
             return True
         return False
 
@@ -456,9 +459,7 @@ class Root(_ChildNode):
     def _make_one_parabolic_step_aux3(self):
         if self.parab_acc_state["initialization_stage"]:
             step_order = np.argsort(
-                self.parab_acc_state["step_distrib"][
-                    self.parab_acc_state["last_best_step"]
-                ]
+                self.parab_acc_state["step_distrib"][self.parab_acc_state["last_best_step"]]
             )[::-1]
             step_order = np.array(
                 [
@@ -471,9 +472,7 @@ class Root(_ChildNode):
             _, idx = np.unique(step_order, return_index=True)
             self.parab_acc_state["step_order"][:] = step_order[np.sort(idx)]
             self.parab_acc_state["step_to_cost"][...] = np.nan
-            self.parab_acc_state["step_to_cost"][0] = self.parab_acc_state[
-                "current_cost"
-            ]
+            self.parab_acc_state["step_to_cost"][0] = self.parab_acc_state["current_cost"]
             self.parab_acc_state["current_step_index"] = 0
             self.parab_acc_state["step_min"] = 0
             self.parab_acc_state["step_max"] = self.parab_acc_state["nb_step"] - 1
@@ -483,31 +482,19 @@ class Root(_ChildNode):
 
         found_a_better_solution = False
         while not found_a_better_solution:
-            step = self.parab_acc_state["step_order"][
-                self.parab_acc_state["current_step_index"]
-            ]
-            if (
-                self.parab_acc_state["step_min"]
-                <= step
-                <= self.parab_acc_state["step_max"]
-            ):
+            step = self.parab_acc_state["step_order"][self.parab_acc_state["current_step_index"]]
+            if self.parab_acc_state["step_min"] <= step <= self.parab_acc_state["step_max"]:
                 if step > 0:
-                    self.parab_acc_state["step_to_cost"][step] = (
-                        self._eval_parabolic_step(step)
-                    )
+                    self.parab_acc_state["step_to_cost"][step] = self._eval_parabolic_step(step)
 
                 if (
                     self.parab_acc_state["step_to_cost"][step]
                     >= self.parab_acc_state["current_cost"]
                 ):
                     if step - 1 == self.parab_acc_state["best_step"]:
-                        self.parab_acc_state["step_max"] = self.parab_acc_state[
-                            "best_step"
-                        ]
+                        self.parab_acc_state["step_max"] = self.parab_acc_state["best_step"]
                     elif step + 1 == self.parab_acc_state["best_step"]:
-                        self.parab_acc_state["step_min"] = self.parab_acc_state[
-                            "best_step"
-                        ]
+                        self.parab_acc_state["step_min"] = self.parab_acc_state["best_step"]
                     elif step > self.parab_acc_state["best_step"]:
                         self.parab_acc_state["step_max"] = step
                     else:
@@ -515,12 +502,10 @@ class Root(_ChildNode):
                 else:
                     found_a_better_solution = True
                     self.parab_acc_state["best_step"] = step
-                    self.parab_acc_state["current_cost"] = self.parab_acc_state[
-                        "step_to_cost"
-                    ][step]
-                    if step > 0 and not np.isnan(
-                        self.parab_acc_state["step_to_cost"][step - 1]
-                    ):
+                    self.parab_acc_state["current_cost"] = self.parab_acc_state["step_to_cost"][
+                        step
+                    ]
+                    if step > 0 and not np.isnan(self.parab_acc_state["step_to_cost"][step - 1]):
                         if (
                             self.parab_acc_state["step_to_cost"][step - 1]
                             >= self.parab_acc_state["step_to_cost"][step]
@@ -602,9 +587,7 @@ class Root(_ChildNode):
         )
         if self.update_type == "parabolic":
             # self.acceleration_start_iter = self.current_iter
-            self.parab_acc_state.update(
-                {"standard_update": True, "consec_std_update": 0}
-            )
+            self.parab_acc_state.update({"standard_update": True, "consec_std_update": 0})
         self.need_a_bump = False
 
     def estimate_hyperparam(self, n_iter, learning_rate=1.0, clear_cache=True):
@@ -641,16 +624,8 @@ class Root(_ChildNode):
             for bud in self.nodes_by_level[0]:
                 if bud.update_period != 0:
                     bud.update_tensor()
-        # empty cache because hyperparameters have changed
-        for leaf in self.nodes_by_level[1]:
-            try:
-                del leaf._cst_prior_value
-            except:
-                pass
 
-    def _record_cost_values(
-        self, data_fitting=None, contraints_fitting=None, time_val=None
-    ):
+    def _record_cost_values(self, data_fitting=None, contraints_fitting=None, time_val=None):
         data_fitting = data_fitting or self._get_data_fitting()
         contraints_fitting = contraints_fitting or self._get_total_contraints_fitting()
         time_val = time_val or time.time()
@@ -695,13 +670,9 @@ class Root(_ChildNode):
         """
         max_iter = max_iter or self.current_iter
         toc = time.time()
-        data_fit = (
-            np.nan if not self.data_fitting_record else self.data_fitting_record[-1]
-        )
+        data_fit = np.nan if not self.data_fitting_record else self.data_fitting_record[-1]
         const_fit = (
-            np.nan
-            if not self.constraints_fitting_record
-            else self.constraints_fitting_record[-1]
+            np.nan if not self.constraints_fitting_record else self.constraints_fitting_record[-1]
         )
         tot = np.nan if not self.cost_record else self.cost_record[-1]
         try:

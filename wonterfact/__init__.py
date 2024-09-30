@@ -32,6 +32,7 @@ from .root import Root
 from .leaves import LeafDirichlet
 from .operators import Multiplier, Multiplexer, Integrator, Adder, Proxy, Smoothstep
 from .observers import PosObserver, BlindObs
+from .buds import BudShape
 from .glob_var_manager import glob
 
 # Django imports only if possible.
@@ -50,6 +51,7 @@ __all__ = [
     "Proxy",
     "BlindObs",
     "LeafGammaNorm",
+    "BudShape",
     "utils",
     "glob",
     "create_filiation",
