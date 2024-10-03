@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import abc
 import typing
-from copy import deepcopy
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -22,6 +22,44 @@ def logmeanexp(vector):
     log_sum_exp = np.log(np.sum(np.exp(vector - max_val)))
 
     return log_sum_exp + max_val - np.log(vector.size)
+
+
+@dataclass
+class DecoderParam:
+    prior: npt.NDArray
+    value: npt.NDArray
+
+
+@dataclass
+class BaseLayer(abc.ABC):
+    size: int
+
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        """Return type"""
+
+
+@dataclass
+class ShrinkLayer2(BaseLayer):
+    size: int
+    shrink: DecoderParam
+    name = "shrink"
+
+
+@dataclass
+class DenseLayer2(BaseLayer):
+    size: int
+    sign: DecoderParam
+    covar: DecoderParam
+    shrink: DecoderParam
+    name = "dense"
+
+
+@dataclass
+class Code2(BaseLayer):
+    code_prior: npt.NDArray
+    name = "code"
 
 
 class ShrinkLayer(typing.TypedDict):
@@ -45,198 +83,6 @@ class CodeLayer(typing.TypedDict):
 
 
 Layer = DenseLayer | CodeLayer | ShrinkLayer
-
-
-@dataclass
-class ToyModel:
-    code_prior: npt.NDArray
-    shrink_prior: npt.NDArray
-
-    def make_tree(
-        self,
-        data: npt.NDArray,
-        update_decoder: bool,
-        inference: typing.Literal["VB-MCMC", "EM"] = "VB-MCMC",
-    ) -> wtf.Root:
-        assert data.shape[1] == 2
-        assert data.ndim == 2
-        obs_nb = data.shape[0]
-        tensor_init = np.ones((obs_nb, 2))
-        tensor_init[:, ...] = self.code_prior
-        tensor_init /= tensor_init.sum(1, keepdims=True)
-        code_leaf_ik = wtf.LeafDirichlet(
-            tensor=tensor_init,
-            index_id="ik",
-            norm_axis=(1,),
-            name="code",
-            prior_shape=self.code_prior,
-            variance_factor=1,
-        )
-
-        prior_shape = self.shrink_prior.copy()
-        tensor_init = prior_shape / prior_shape.sum(1, keepdims=True)  # taking the mean
-        zoom_out_leaf_kz = wtf.LeafDirichlet(
-            tensor=tensor_init,
-            index_id="kz",
-            norm_axis=(1,),
-            name="zoom_out_0",
-            prior_shape=prior_shape,
-            inertia=0.0,
-            brake=0,
-            variance_factor=1.0,
-            update_period=1 if update_decoder else 0,
-        )
-        if not update_decoder:
-            # no need for decoder prior update if decoder is fixed
-            zoom_out_leaf_kz.shape_parent.update_period = 0
-
-        mul_nz = wtf.Multiplier(index_id="iz", name="data_hat")
-        mul_nz.new_parents(code_leaf_ik, zoom_out_leaf_kz)
-
-        obs_nz = wtf.PosObserver(tensor=data, index_id="iz", norm_axis=(1,), name="data")
-        obs_nz.new_parent(mul_nz)
-
-        tree = wtf.Root(
-            inference_mode=inference,
-            cost_computation_iter=0,
-            update_type="regular",
-            verbose_iter=0,
-            stop_estim_threshold=0,
-        )
-        tree.new_parent(obs_nz)
-        return tree
-
-    def run_vbmcmc(
-        self,
-        data: npt.NDArray,
-        *,
-        update_decoder: bool = True,
-        n_burnin: int = 1000,
-        n_mcmc: int = 10000,
-        callback: typing.Callable[[wtf.Root], None] | None = None,
-    ):
-        tree = self.make_tree(data, update_decoder=update_decoder)
-        tree.estimate_param(n_burnin, callback=callback)
-        tree.tree_traversal("reset_sufficient_statistic", "bottom-up")
-        tree.estimate_param(n_mcmc, callback=callback)
-        return tree
-
-    def prelearn(self, dataset: npt.NDArray, learning_rate: float):
-        tree = self.run_vbmcmc(dataset)
-        if learning_rate >= 0.9:
-            tree.estimate_hyperparam(10000, learning_rate=learning_rate)
-        else:
-            tree.estimate_hyperparam(1000, learning_rate=learning_rate)
-        new_model = deepcopy(self)
-        new_model.shrink_prior = tree.get_leaf("zoom_out_0").prior_shape
-        new_model.code_prior = tree.get_leaf("code").prior_shape[0]
-        return new_model
-
-    def fit(self, data: npt.NDArray, code_prior_learning_rate: float = 1.0):
-        new_model = deepcopy(self)
-        # We estimate the decoder posterior
-        # cost = []
-        # param1 = []
-        # param2 = []
-
-        # def callback(_tree: wtf.Root):
-        #     cost.append(_tree.get_cost_func())
-        #     leaf = _tree.get_leaf("zoom_out_0")
-        #     param1.append(leaf.tensor[0, 0])
-        #     param2.append(leaf.tensor[1, 0])
-        callback = None
-
-        tree = self.run_vbmcmc(
-            data, update_decoder=True, n_burnin=1000, n_mcmc=10000, callback=callback
-        )
-        # update decoder prior (we are not interested in code posterior yet)
-        tree.get_leaf("code").shape_parent.update_period = 0
-        tree.estimate_hyperparam(10000)
-        new_model.shrink_prior = tree.get_leaf("zoom_out_0").prior_shape
-
-        # with fix decoder, estimate code posterior and set as a new prior
-        # tree = new_model.make_tree(data, update_decoder=False, inference="EM")
-        # tree.estimate_param(1000)
-        tree2 = new_model.run_vbmcmc(
-            data, update_decoder=False, n_burnin=100, n_mcmc=1000, callback=None
-        )
-        tree2.estimate_hyperparam(400, learning_rate=code_prior_learning_rate)
-        new_model.code_prior = tree2.get_leaf("code").prior_shape[0]
-        # return new_model, tree, param1, param2, cost
-        return new_model
-
-    def estimate_log_evidence(self, data: npt.NDArray, n_is: int = 2000):
-        assert data.shape == (2,)
-        code = []
-        cost = []
-
-        def callback(_tree: wtf.Root):
-            code.append(_tree.get_leaf("code").tensor[0, 0])
-            cost.append(_tree.get_cost_func())
-
-        tree = self.run_vbmcmc(
-            np.atleast_2d(data), update_decoder=False, n_burnin=100, n_mcmc=1000, callback=callback
-        )
-        # code posterior can be very peacky when only one observation: we need many iterations
-        tree.estimate_hyperparam(1000)
-
-        # get define code prior and posterior
-        code_posterior = tree.get_leaf("code").prior_shape[0]
-
-        # remake tree with prior
-        tree = self.make_tree(np.atleast_2d(data), update_decoder=False)
-        tree.estimate_param(1)
-        var_list = [0.25, 0.5, 0.75, 1, 1.5]
-        # var_list = [0.25, 0.5, 1.0]
-        q_proba_list = [scs.dirichlet(code_posterior * var) for var in var_list]
-        l_arr = np.zeros((len(var_list), n_is))
-        for qq, q_proba in tqdm(enumerate(q_proba_list), total=len(q_proba_list), disable=True):
-            weights_to_test = q_proba.rvs(size=n_is)
-            for ii, weights in enumerate(weights_to_test):
-                tree.get_leaf("code").tensor[...] = weights[...]
-                tree.tree_traversal(
-                    "_update_tensor",
-                    mode="top-down",
-                    method_input=((), {"update_type": "no_update_for_leaves"}),
-                    iteration_number=1,
-                    type_filter_list=[
-                        wtf.BudShape,
-                    ],
-                )
-                l_arr[qq, ii] = -tree.get_cost_func() - logmeanexp(
-                    np.array([qq_proba.logpdf(weights) for qq_proba in q_proba_list])
-                )
-        return logmeanexp(l_arr.ravel())
-
-    def estimate_log_evidence2(self, data: npt.NDArray):
-        # assert data.shape == (2,)
-        # tree = self.make_tree(np.atleast_2d(data), update_decoder=False)
-        # tree.estimate_param(100)
-        # alpha_post = tree.nodes_by_id["code"].tensor * int(data.sum())
-        # alpha_prior = tree.nodes_by_id["code"].prior_shape
-        # var_list = [0, 1 / 100, 1 / 50, 1 / 10, 1 / 5, 1]
-        # q_proba_list = [scs.dirichlet((alpha_post * var + alpha_prior).ravel()) for var in var_list]
-        # N_per_q = 2000
-        # R_arr = []
-        # for q_proba in q_proba_list:
-        #     weights_to_test = q_proba.rvs(size=N_per_q)
-        #     for weights in weights_to_test:
-        #         tree.nodes_by_id["code"].tensor[...] = weights[...]
-        #         tree.tree_traversal(
-        #             "_update_tensor",
-        #             mode="top-down",
-        #             method_input=((), {"update_type": "no_update_for_leaves"}),
-        #             iteration_number=1,
-        #             type_filter_list=[
-        #                 wtf.BudShape,
-        #             ],
-        #         )
-        #         R = np.exp(-tree.get_cost_func()) / (
-        #             sum(qq_proba.pdf(weights) for qq_proba in q_proba_list) / len(q_proba_list)
-        #         )
-        #         R_arr.append(R)
-        # return np.mean(R_arr)
-        pass
 
 
 def toy_model(code_prior: npt.NDArray, shrink_prior: npt.NDArray):
@@ -275,6 +121,13 @@ class MyModel:
             ((size, previous_size, 2), (size, previous_size), (size, 2, 2)),
         ):
             temp_dict[prior_name] = np.ones(expected_size) if prior_arr is None else prior_arr
+            if prior_name == "shrink_prior":
+                temp_dict[prior_name] += np.eye(2) * 100
+            if prior_name == "sign_prior":
+                temp_dict[prior_name][..., 0] += 1
+            if prior_name == "covar_prior":
+                min_size = min(previous_size, size)
+                temp_dict[prior_name][:min_size, :min_size] += np.eye(min_size) * 100
             if temp_dict[prior_name].shape != expected_size:
                 msg = f"wrong shape for `{prior_name}` array"
                 raise ValueError(msg)
@@ -356,6 +209,7 @@ class MyModel:
         plug_here.new_parent(signed_covar)
         sign_flipper = wtf.LeafDirichlet(
             index_id="zsw",
+            norm_axis=(2,),
             tensor=np.array([[[0, 1], [1, 0]], [[1, 0], [0, 1]]]),
             update_period=0,
             name=f"flipper_{layer_nb}",
@@ -455,7 +309,13 @@ class MyModel:
             name="code",
         )
 
-    def make_tree(self, data: npt.NDArray, update_decoder: bool):
+    def make_tree(
+        self,
+        data: npt.NDArray,
+        update_decoder: bool,
+        niter_until_maxdrawings: int = 1,
+        inference_mode: typing.Literal["EM", "VB-MCMC"] = "VB-MCMC",
+    ):
         if data.ndim != 3 or data.shape[-1] != 2:
             msg = "Shape of data array should be (batch_size, data_dimension, 2)"
             raise ValueError(msg)
@@ -469,11 +329,17 @@ class MyModel:
             to_plug.new_child(plug_here)
             to_plug = output
 
-        obs_ngz = wtf.PosObserver(tensor=data, index_id="ngz", norm_axis=(2,), name="data")
+        obs_ngz = wtf.PosObserver(
+            tensor=data,
+            index_id="ngz",
+            norm_axis=(2,),
+            name="data",
+            drawings_step=data.sum() / niter_until_maxdrawings,
+        )
         to_plug.new_child(obs_ngz)
 
         root = wtf.Root(
-            inference_mode="VB-MCMC",
+            inference_mode=inference_mode,
             cost_computation_iter=0,
             update_type="regular",
             verbose_iter=0,
@@ -498,7 +364,7 @@ class MyModel:
         n_mcmc: int = 10000,
         callback: typing.Callable[[wtf.Root], None] | None = None,
     ):
-        tree = self.make_tree(data, update_decoder=update_decoder)
+        tree = self.make_tree(data, update_decoder=update_decoder, niter_until_maxdrawings=n_burnin)
         tree.estimate_param(n_burnin, callback=callback)
         tree.tree_traversal("reset_sufficient_statistic", "bottom-up")
         tree.estimate_param(n_mcmc, callback=callback)
@@ -510,15 +376,23 @@ class MyModel:
         ]
         return type(self)(new_layers)
 
-    def prelearn(self, dataset: npt.NDArray, learning_rate: float):
-        tree = self.run_vbmcmc(dataset)
+    def prelearn(
+        self, dataset: npt.NDArray, learning_rate: float, epochs: int = 1000, burning: int = 500
+    ):
+        tree = self.run_vbmcmc(dataset, update_decoder=True, n_burnin=burning, n_mcmc=epochs)
         if learning_rate >= 0.9:
-            tree.estimate_hyperparam(10000, learning_rate=learning_rate)
+            tree.estimate_hyperparam(1000, learning_rate=learning_rate)
         else:
             tree.estimate_hyperparam(1000, learning_rate=learning_rate)
         return self._model_from_tree(tree)
 
-    def fit(self, dataset: npt.NDArray, code_prior_learning_rate: float = 1.0):
+    def fit(
+        self,
+        dataset: npt.NDArray,
+        code_prior_learning_rate: float = 1.0,
+        epochs: int = 1000,
+        burning: int = 500,
+    ):
         # We estimate the decoder posterior
         # cost = []
         # param1 = []
@@ -532,13 +406,15 @@ class MyModel:
         callback = None
 
         tree = self.run_vbmcmc(
-            dataset, update_decoder=True, n_burnin=1000, n_mcmc=10000, callback=callback
+            dataset, update_decoder=True, n_burnin=burning, n_mcmc=epochs, callback=callback
         )
         # update decoder prior (we are not interested in code posterior yet)
         tree.get_leaf("code").shape_parent.update_period = 0
-        tree.estimate_hyperparam(10000)
+        tree.estimate_hyperparam(1000)
 
         model_with_fix_code = self._model_from_tree(tree)
+        if not code_prior_learning_rate:
+            return model_with_fix_code
 
         # with fix decoder, estimate code posterior and set as a new prior
         # tree = new_model.make_tree(data, update_decoder=False, inference="EM")
@@ -602,3 +478,13 @@ class MyModel:
                     )
                 )
         return logmeanexp(l_arr.ravel())
+
+    def simulate_data(self, n_data: int, multinomial_drawings: int = 1000):
+        if not self.layers:
+            msg = "Undefined model"
+            raise ValueError(msg)
+        fake_data = np.zeros((n_data, self.layers[-1]["size"], 2))
+        tree = self.make_tree(fake_data, update_decoder=False)
+        tree.estimate_param(1)
+        tree.simulate_data(multinomial_drawings=multinomial_drawings)
+        return tree.nodes_by_id["data"].tensor

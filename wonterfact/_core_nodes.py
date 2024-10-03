@@ -84,7 +84,8 @@ class _Node(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_m
 
     def _set_inference_mode(self, mode="EM"):
         if mode not in ("EM", "VBEM", "VB-MCMC"):
-            raise ValueError("Unkwnon inference mode value")
+            msg = "Unkwnon inference mode value"
+            raise ValueError(msg)
         self._inference_mode = mode
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
@@ -103,8 +104,7 @@ class _Node(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_m
         pass
 
     def __repr__(self):
-        str_out = "{}(name='{}')".format(type(self).__name__, self.name)
-        return str_out
+        return f"{type(self).__name__}(name='{self.name}')"
 
     def clear_cache(self):
         list_of_names = [
@@ -126,7 +126,7 @@ class _Node(metaclass=DocInheritMeta(style="numpy_with_merge", include_special_m
             getattr(self, name).cache_clear()
 
 
-class _ParentNode(_Node):
+class ParentNode(_Node):
     """
     Base class for all parent nodes, i.e. all nodes that have children
     """
@@ -169,22 +169,18 @@ class _ParentNode(_Node):
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
         if child is not None and child in self.list_of_children:
-            raise ValueError(
-                """
-                A parent and a child cannot be linked several times.
-                Please make use of wonterfact.Proxy class if needed.
-                """
+            msg = (
+                "A parent and a child cannot be linked several times. "
+                "Please make use of wonterfact.Proxy class if needed."
             )
+            raise ValueError(msg)
         if (
             child is not None
             and self.max_children is not None
             and len(self.list_of_children) == self.max_children
         ):
-            raise ValueError(
-                """
-                {} nodes cannot have more than {} child(ren)
-                """.format(type(self), self.max_children)
-            )
+            msg = f"{type(self)} nodes cannot have more than {self.max_children} child(ren)"
+            raise ValueError(msg)
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
     def new_child(self, child, **kwargs):
@@ -226,19 +222,19 @@ class _ParentNode(_Node):
             self.new_child(child)
 
 
-class _ChildNode(_Node):
+class ChildNode(_Node):
     """
     Base for all child nodes, i.e. all nodes that have parents
     """
 
-    max_parents = None
+    max_parents: None | int = None
 
     def __init__(self, **kwargs):
         self._list_of_parents = []  # list of all parent nodes
         super().__init__(**kwargs)
 
     @property
-    def list_of_parents(self) -> list[_ParentNode]:
+    def list_of_parents(self) -> list[ParentNode]:
         """
         Gives the list of all parent nodes.
 
@@ -291,29 +287,25 @@ class _ChildNode(_Node):
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
         if parent is not None and parent in self.list_of_parents:
-            raise ValueError(
-                """
-                A parent and a child cannot be linked several times.
-                Please make use of wonterfact.Proxy class if needed.
-                """
+            msg = (
+                "A parent and a child cannot be linked several times."
+                "Please make use of wonterfact.Proxy class if needed."
             )
+            raise ValueError(msg)
         if (
             parent is not None
             and self.max_parents is not None
             and len(self.list_of_parents) == self.max_parents
         ):
-            raise ValueError(
-                """
-                {} nodes cannot have more than {} parent(s)
-                """.format(type(self), self.max_parents)
-            )
+            msg = f"{type(self)} nodes cannot have more than {self.max_parents} parent(s)"
+            raise ValueError(msg)
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
     def _parse_kwargs_for_filiation(self, parent, **kwargs):
         return kwargs
 
 
-class _NodeData(_ParentNode):
+class NodeData(ParentNode):
     """
     Base class of all nodes that carry data. Inherits from ParentNode class
     since a NodeData necessarily have at least one child.
@@ -367,24 +359,24 @@ class _NodeData(_ParentNode):
         attr = getattr(self, attr)
         return self.cast_array(attr, force_numpy=True)
 
-    @property
-    def tensor_has_energy(self):
-        """
-        Tells if inner tensor has energy. If not, it means that inner tensor
-        complies to some normalization constraint.
-        """
-        raise NotImplementedError
-
     def __repr__(self):
         str_out = super().__repr__()
         if isinstance(self.index_id, str):
-            print_index_id = "'{}'".format(self.index_id)
+            print_index_id = f"'{self.index_id}'"
         else:
-            print_index_id = "{}".format(self.index_id)
-        return str_out[:-1] + ", index_id={})".format(print_index_id)
+            print_index_id = f"{self.index_id}"
+        return str_out[:-1] + f", index_id={print_index_id})"
+
+    def norm_axis(self) -> tuple[int, ...]:
+        """
+        If inner tensor has no energy, specifies axis subject to a normalization
+        constraint. In such case, `self.tensor.sum(axis=self.norm_axis))` should
+        be filled with `1.0`.
+        """
+        return ()
 
 
-class _DynNodeData0(_NodeData):
+class DynNodeData0(NodeData):
     """
     Base class for all nodes that carry dynamic data, i.e. data that can evolve
     during estimation algorithms.
@@ -456,11 +448,8 @@ class _DynNodeData0(_NodeData):
                 tensor.strides[ii] >= tensor.strides[ii + 1]
                 for ii in range(len(tensor.strides) - 1)
             ):
-                raise ValueError(
-                    "Strides of {}'s inner tensor should always be in descending" "order".format(
-                        self
-                    )
-                )
+                msg = f"Strides of {self}'s inner tensor should always be in descending order"
+                raise ValueError(msg)
             return glob.as_strided(
                 tensor,
                 shape=self.reshape_for_children_dict[child],
@@ -678,15 +667,13 @@ class _DynNodeData0(_NodeData):
         del self._tensor_backup
 
 
-class _DynNodeData(_DynNodeData0):
+class DynNodeData(DynNodeData0):
     """
     Base class for all nodes that carry values belonging in the domain of
     paramaters (basically parameter leaves and operators)
     """
 
     def get_norm_axis_for_children(self, child):
-        if self.tensor_has_energy or self.tensor.ndim == 0 or self.norm_axis == None:
-            return None
         if self.strides_for_children_dict[child] is not None:
             raise NotImplementedError
         # first we deal with the slicing for child
@@ -706,7 +693,7 @@ class _DynNodeData(_DynNodeData0):
         if shape_sliced_tensor == shape_for_child:
             return tuple(norm_axis_list)
         if 1 in shape_sliced_tensor:
-            raise ValueError(
+            msg = (
                 "{} cannot yet automatically infer `norm_axis_for_child` for its "
                 "child {} due to the presence of 1-size dimension of the sliced tensor. "
                 "You can either explicitly specify `norm_axis_for_child` during the filiation "
@@ -714,17 +701,19 @@ class _DynNodeData(_DynNodeData0):
                 "so that 1-size dimensions are squeezed or run `Root.estimate_param` "
                 "with `check_model_validity=False` to bypass the validity check of the model."
             )
+            raise ValueError(msg)
         cumprod_shape_1 = np.cumprod(shape_sliced_tensor)
         if 1 in shape_for_child:
-            raise ValueError(
+            msg = (
                 "{} cannot automatically infer `norm_axis_for_child` for its "
                 "child {} due to the presence of 1-size dimensions in `shape_for_child`"
                 "Please explicitly specify `norm_axis_for_child` during the filiation "
                 "creation, or run `Root.estimate_param` with `check_model_validity=False`"
                 "to bypass the validity check of the model."
             )
+            raise ValueError(msg)
         cumprod_shape_2 = np.cumprod(shape_for_child)
-        cumprod_intersect = sorted(list(set(cumprod_shape_1).intersection(cumprod_shape_2)))
+        cumprod_intersect = sorted(set(cumprod_shape_1).intersection(cumprod_shape_2))
         list_of_clust1, list_of_clust2 = [], []
         min_dim = 0
         for max_dim in cumprod_intersect:
@@ -748,38 +737,16 @@ class _DynNodeData(_DynNodeData0):
             if all(elem in norm_axis_list for elem in clust1):
                 norm_axis += clust2
             elif any(elem in norm_axis_list for elem in clust1):
-                raise ValueError(
-                    "Invalid shape_for_child between {} and {}. "
+                msg = (
+                    f"Invalid shape_for_child between {self} and {child}. "
                     "Normalized axis should not be spitted during the reshaping"
-                    " process".format(self, child)
+                    " process"
                 )
+                raise ValueError(msg)
         return tuple(norm_axis)
-
-    @cached_property
-    def norm_axis(self):
-        """
-        If inner tensor has no energy, specifies axis subject to a normalization
-        constraint. In such case, `self.tensor.sum(axis=self.norm_axis))` should
-        be filled with `1.0`.
-        """
-        raise NotImplementedError
 
     def _check_model_validity(self):
         super()._check_model_validity()
-
-        # If tensor has energy, each of its value can be seen at most by one
-        # child otherwise it would mean that energy is duplicated. On the other
-        # hand, if a value is seen by no child, it is not a problem because
-        # tensor_update can have default value = 1 as if we had masked
-        # observations
-        if self.tensor_has_energy:
-            if not self.are_all_tensor_coefs_linked_to_at_most_one_child:
-                raise ValueError(
-                    "Model invalid at {} level. Each coefficient of inner tensor "
-                    "should be seen by at most one child, unless inner tensor has "
-                    "no energy".format(self)
-                )
-            return
 
         #  Otherwise, all values of inner tensor should be seen by at least one child.
         if not self.are_all_tensor_coefs_linked_to_at_least_one_child:
@@ -815,11 +782,4 @@ class _DynNodeData(_DynNodeData0):
                     )
 
     def _total_energy_leak(self):
-        if not self.tensor_has_energy:
-            return 0
-        tensor_copy = self.tensor.copy()
-        for child in self.list_of_children:
-            self._compute_tensor_update_aux(
-                child, tensor_to_fill=tensor_copy, value_to_force=0.0, cumsum=False
-            )
-        return tensor_copy.sum().item()
+        return 0

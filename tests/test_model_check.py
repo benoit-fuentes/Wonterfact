@@ -28,12 +28,12 @@ import pytest
 
 # wonterfact imports
 import wonterfact as wtf
-import wonterfact.core_nodes as wtfc
+import wonterfact._core_nodes as wtfc
 import wonterfact.operators as wtfo
 
 
 def test_get_norm_for_children():
-    parent = wtfc._DynNodeData()
+    parent = wtfc.DynNodeData()
     parent.tensor_has_energy = False
     child = wtfo._Operator()
     sl = slice(None)
@@ -55,9 +55,7 @@ def test_get_norm_for_children():
         parent.remove_child(child)
         parent.tensor = npr.rand(*parent_shape)
         parent.norm_axis = parent_norm_axis
-        parent.new_child(
-            child, slice_for_child=slice_for_child, shape_for_child=shape_for_child
-        )
+        parent.new_child(child, slice_for_child=slice_for_child, shape_for_child=shape_for_child)
 
     for elem in input_output_list:
         setup_nodes(*elem[:-1])
@@ -90,7 +88,7 @@ def test_get_norm_for_children():
 
 
 def test_check_model_validity_dynnodedata():
-    parent = wtfc._DynNodeData(index_id="d", tensor=npr.rand(2))
+    parent = wtfc.DynNodeData(index_id="d", tensor=npr.rand(2))
     parent.tensor_has_energy = False
     child1 = wtfo._Operator(index_id="d", tensor=npr.rand(1))
     parent.new_child(child1, slice_for_child=slice(0, 1))
@@ -100,31 +98,35 @@ def test_check_model_validity_dynnodedata():
     ):
         parent._check_model_validity()
 
-    parent = wtfc._DynNodeData(index_id="td", tensor=npr.rand(2, 2))
+    parent = wtfc.DynNodeData(index_id="td", tensor=npr.rand(2, 2))
     parent.tensor_has_energy = False
     parent.norm_axis = (1,)
     child1 = wtfo._Operator(index_id="td", tensor=npr.rand(2, 1))
     parent.new_child(child1, slice_for_child=(..., slice(0, 1)))
     child2 = wtfo._Operator(index_id="td", tensor=npr.rand(2, 1))
     parent.new_child(child2, slice_for_child=(..., slice(1, 2)))
-    with pytest.raises(
-        ValueError, match=".*its children should not see an incomplete piece of"
-    ):
+    with pytest.raises(ValueError, match=".*its children should not see an incomplete piece of"):
         parent._check_model_validity()
 
-    parent = wtfc._DynNodeData(index_id="td", tensor=npr.rand(2, 2))
+    parent = wtfc.DynNodeData(index_id="td", tensor=npr.rand(2, 2))
     parent.tensor_has_energy = False
     parent.norm_axis = (1,)
     child1 = wtfo._Operator(index_id="t", tensor=npr.rand(1))
     parent.new_child(child1, slice_for_child=(..., 0))
     child2 = wtfo._Operator(index_id="td", tensor=npr.rand(1))
-    parent.new_child(child2, slice_for_child=(..., [1,]))
-    with pytest.raises(
-        ValueError, match=".*its children should not see an incomplete piece of"
-    ):
+    parent.new_child(
+        child2,
+        slice_for_child=(
+            ...,
+            [
+                1,
+            ],
+        ),
+    )
+    with pytest.raises(ValueError, match=".*its children should not see an incomplete piece of"):
         parent._check_model_validity()
 
-    parent = wtfc._DynNodeData(index_id="d", tensor=npr.rand(3))
+    parent = wtfc.DynNodeData(index_id="d", tensor=npr.rand(3))
     parent.tensor_has_energy = True
     child1 = wtfo._Operator(index_id="d", tensor=npr.rand(2))
     parent.new_child(child1, slice_for_child=slice(0, 2))
@@ -158,8 +160,8 @@ def test_norm_axis_and_check_model_validity_multiplier():
         norm_axis1,
         norm_axis2,
     ):
-        parent1 = wtfc._DynNodeData(tensor=tensor1, index_id=index_id1)
-        parent2 = wtfc._DynNodeData(tensor=tensor2, index_id=index_id2)
+        parent1 = wtfc.DynNodeData(tensor=tensor1, index_id=index_id1)
+        parent2 = wtfc.DynNodeData(tensor=tensor2, index_id=index_id2)
         child = wtfo.Multiplier(
             index_id=index_id_child, tensor=npr.rand(*(2,) * len(index_id_child))
         )
@@ -237,10 +239,10 @@ def test_check_model_validity_convolver():
         norm_axis2,
         conv_idx_ids,
     ):
-        parent1 = wtfc._DynNodeData(tensor=tensor1, index_id=index_id1)
+        parent1 = wtfc.DynNodeData(tensor=tensor1, index_id=index_id1)
         parent1.tensor_has_energy = has_energy1
         parent1.norm_axis = norm_axis1
-        parent2 = wtfc._DynNodeData(tensor=tensor2, index_id=index_id2)
+        parent2 = wtfc.DynNodeData(tensor=tensor2, index_id=index_id2)
         parent2.tensor_has_energy = has_energy2
         parent2.norm_axis = norm_axis2
         child = wtfo.Multiplier(
@@ -300,10 +302,10 @@ def test_check_model_validity_convolver():
 
 def test_check_model_validity_multiplexer():
     def setup(has_energy1, has_energy2, norm_axis1, norm_axis2, concatenate):
-        parent1 = wtfc._DynNodeData(index_id="f", tensor=npr.rand(2))
+        parent1 = wtfc.DynNodeData(index_id="f", tensor=npr.rand(2))
         parent1.tensor_has_energy = has_energy1
         parent1.norm_axis = norm_axis1
-        parent2 = wtfc._DynNodeData(index_id="f", tensor=npr.rand(2))
+        parent2 = wtfc.DynNodeData(index_id="f", tensor=npr.rand(2))
         parent2.tensor_has_energy = has_energy2
         parent2.norm_axis = norm_axis2
         index_id_child = "f" if concatenate else "fd"
@@ -335,7 +337,7 @@ def test_check_model_validity_multiplexer():
 
 
 def test_check_model_validity_integrator():
-    parent = wtfc._DynNodeData(index_id="dt", tensor=npr.rand(2, 4))
+    parent = wtfc.DynNodeData(index_id="dt", tensor=npr.rand(2, 4))
     parent.tensor_has_energy = False
     parent.norm_axis = (0,)
     child = wtf.Integrator(index_id="dt", tensor=npr.rand(2, 4))
@@ -347,10 +349,10 @@ def test_check_model_validity_integrator():
 
 
 def test_check_model_validity_adder():
-    parent1 = wtfc._DynNodeData(index_id="ft", tensor=npr.rand(2, 2))
+    parent1 = wtfc.DynNodeData(index_id="ft", tensor=npr.rand(2, 2))
     parent1.tensor_has_energy = False
     parent1.norm_axis = (0, 1)
-    parent2 = wtfc._DynNodeData(index_id="ft", tensor=npr.rand(2, 2))
+    parent2 = wtfc.DynNodeData(index_id="ft", tensor=npr.rand(2, 2))
     parent2.tensor_has_energy = True
     child = wtf.Adder(index_id="ft", tensor=npr.rand(2, 2))
     child.new_parents(parent1, parent2)
@@ -358,4 +360,3 @@ def test_check_model_validity_adder():
     child.new_child(obs)
     with pytest.raises(ValueError, match=".*should all have energy.*"):
         child._check_model_validity()
-

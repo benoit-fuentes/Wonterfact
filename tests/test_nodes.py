@@ -20,8 +20,6 @@
 """Tests for basic methods of nodes"""
 
 # Python standard library
-from pathlib import Path
-import tempfile
 
 # Third-party imports
 import numpy as np
@@ -49,13 +47,6 @@ def make_test_tree():
 
     dim_k, dim_s, dim_t, dim_f, dim_c = 3, 2, 10, 4, 2
 
-    leaf_energy = wtf.LeafGamma(
-        name="leaf_energy",
-        index_id="",
-        tensor=np.array(1),
-        prior_shape=1.1,
-        prior_rate=0.01,
-    )
     leaf_k = wtf.LeafDirichlet(
         name="leaf_k",
         index_id="k",
@@ -63,8 +54,6 @@ def make_test_tree():
         tensor=normalize(npr.rand(dim_k), 0),
         prior_shape=1,
     )
-    mul_k = wtf.Multiplier(name="mul_k", index_id=("k",))
-    mul_k.new_parents(leaf_energy, leaf_k)
 
     leaf_kts_0 = wtf.LeafDirichlet(
         name="leaf_kts_0",
@@ -74,10 +63,11 @@ def make_test_tree():
         prior_shape=1,
     )
     mul_kts = wtf.Multiplier(name="mul_kts", index_id="kts")
-    mul_kts.new_parents(leaf_kts_0, mul_k)
+    mul_kts.new_parents(leaf_kts_0, leaf_k)
 
-    leaf_kts_1 = wtf.LeafGamma(
+    leaf_kts_1 = wtf.LeafDirichlet(
         name="leaf_kts_1",
+        norm_axis=(0, 1, 2),
         index_id="kts",
         tensor=npr.rand(dim_k, dim_t, dim_s),
         prior_shape=1,
@@ -112,10 +102,10 @@ def make_test_tree():
     mul_tfs = wtf.Multiplier(name="mul_tfs", index_id="tfs")
     mul_tfs.new_parents(mul_kts_1, leaf_kf)
 
-    obs_tf = wtf.RealObserver(
-        name="obs_tf", index_id="tf", tensor=100 * npr.randn(dim_t, dim_f)
+    obs_tfs = wtf.PosObserver(
+        name="obs_tfs", index_id="tfs", tensor=100 * npr.randn(dim_t, dim_f, 2)
     )
-    mul_tfs.new_child(obs_tf)
+    mul_tfs.new_child(obs_tfs)
 
     root = wtf.Root(
         name="root",
@@ -125,10 +115,11 @@ def make_test_tree():
         inference_mode="EM",
         verbose_iter=10,
     )
-    obs_tf.new_child(root)
+    obs_tfs.new_child(root)
 
-    leaf_k_1 = wtf.LeafGamma(
+    leaf_k_1 = wtf.LeafDirichlet(
         name="leaf_k_1",
+        norm_axis=(0,),
         index_id="k",
         tensor=npr.rand(dim_k),
         prior_shape=1,
@@ -150,9 +141,7 @@ def make_test_tree():
     mul_tf = wtf.Multiplier(name="mul_tf", index_id="tf")
     mul_tf.new_parents(leaf_kf, mul_kt)
 
-    obs_tf_2 = wtf.PosObserver(
-        name="obs_tf_2", index_id="tf", tensor=100 * npr.rand(dim_t, dim_f)
-    )
+    obs_tf_2 = wtf.PosObserver(name="obs_tf_2", index_id="tf", tensor=100 * npr.rand(dim_t, dim_f))
     mul_tf.new_child(obs_tf_2)
     obs_tf_2.new_child(root)
 
@@ -167,9 +156,7 @@ def make_test_tree():
     return root
 
 
-@pytest.fixture(
-    scope="module", params=["cpu", pytest.param("gpu", marks=pytest.mark.gpu)]
-)
+@pytest.fixture(scope="module", params=["cpu", pytest.param("gpu", marks=pytest.mark.gpu)])
 def tree(request):
     backend = request.param
     wtf.glob.set_backend_processor(backend, force=True)
@@ -370,12 +357,8 @@ def test_compute_tensor_update(tree):
     assert wtf.glob.xp.allclose(
         tree.leaf_kf.tensor_update,
         (
-            wtf.glob.xp.einsum(
-                "tfs,kts->kf", tree.mul_tfs.tensor_update, tree.mul_kts_1.tensor
-            )
-            + wtf.glob.xp.einsum(
-                "tf,kt->kf", tree.mul_tf.tensor_update, tree.mul_kt.tensor
-            )
+            wtf.glob.xp.einsum("tfs,kts->kf", tree.mul_tfs.tensor_update, tree.mul_kts_1.tensor)
+            + wtf.glob.xp.einsum("tf,kt->kf", tree.mul_tf.tensor_update, tree.mul_kt.tensor)
         ),
     )
 

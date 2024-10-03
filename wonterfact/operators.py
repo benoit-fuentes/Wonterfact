@@ -25,18 +25,14 @@ from functools import cached_property
 # Third-party imports
 # Relative imports
 from . import utils
-from .core_nodes import _ChildNode, _DynNodeData
+from ._core_nodes import ChildNode, DynNodeData
 from .glob_var_manager import glob
 
 
-class _Operator(_DynNodeData, _ChildNode):
+class _Operator(DynNodeData, ChildNode):
     """
     Mother class of all operators
     """
-
-    @cached_property
-    def tensor_has_energy(self):
-        return any(parent.tensor_has_energy for parent in self.list_of_parents)
 
     @cached_property
     def norm_axis(self):
@@ -221,21 +217,13 @@ class Multiplier(_Operator):
 
     def _check_model_validity(self):
         super()._check_model_validity()
-        parent_with_energy_list = [
-            parent for parent in self.list_of_parents if parent.tensor_has_energy
-        ]
-        if len(parent_with_energy_list) > 1:
-            raise ValueError(
-                "Problem with {}'s parents. At most one parent can have a "
-                "tensor having energy i.e. no subject to normalization "
-                "constraint.".format(self)
-            )
-        if not self.tensor_has_energy and self.conv_idx_ids:
-            raise ValueError(
-                "Problem with {}. In convolution mode, inner tensor of a "
+        if self.conv_idx_ids:
+            msg = (
+                f"Problem with {self}. In convolution mode, inner tensor of a "
                 "Multiplier must have energy. Please put a LeafGamma (or any "
-                "Leaf carrying energy) upstream.".format(self)
+                "Leaf carrying energy) upstream."
             )
+            raise NotImplementedError(msg)
         set_of_idx = set.union(
             *(set(parent.get_index_id_for_children(self)) for parent in self.list_of_parents)
         )
@@ -248,13 +236,8 @@ class Multiplier(_Operator):
                 dict_idx[idx].update(
                     {
                         parent: {
-                            "has_energy": parent.tensor_has_energy,
-                            "is_normalized": (
-                                True
-                                if parent.tensor_has_energy
-                                else parent_index_id.index(idx) in parent_norm_axis
-                            ),  # it is simpler to consider normalized when tensor_has_energy
-                            "is_marginalized": not idx in self.index_id,
+                            "is_normalized": (parent_index_id.index(idx) in parent_norm_axis),
+                            "is_marginalized": idx not in self.index_id,
                             "is_convolved": idx in self.conv_idx_ids,
                         }
                     }
@@ -264,47 +247,38 @@ class Multiplier(_Operator):
             # be normalized in both parents.
             if idx in self.conv_idx_ids:
                 if len(parents_dict) != 2:
-                    raise ValueError(
-                        "Cannot convolve '{}' in {}. This index should belong "
+                    msg = (
+                        f"Cannot convolve '{idx}' in {self}. This index should belong "
                         "to two parents. You might make use of `index_id_for_child`"
-                        " argument during filiation creation.".format(idx, self)
+                        " argument during filiation creation."
                     )
+                    raise ValueError(msg)
                 if not all(info["is_normalized"] for info in parents_dict.values()):
-                    raise ValueError(
+                    msg = (
                         "Model is wrong at {} level. Axis to be convolved "
                         "should be normalized or belong to a tensor that has energy."
                     )
+                    raise ValueError(msg)
             # idx can only be normalized once unless it is convolved
             normalized_parent_no_conv_list = [
                 parent
                 for parent, info in parents_dict.items()
                 if info["is_normalized"] and not info["is_convolved"]
             ]
-            normalized_parent_list = [
-                parent for parent, info in parents_dict.items() if info["is_normalized"]
-            ]
             if len(normalized_parent_no_conv_list) > 1:
-                raise ValueError(
-                    "Model is wrong at {} level. An index_id cannot be " "normalized twice".format(
-                        self
-                    )
-                )
-            # if there is a parent with energy, idx must be normalized once
-            if parent_with_energy_list and not normalized_parent_list:
-                raise ValueError(
-                    "Model is wrong at {} level. An index_id should be "
-                    "normalized once before multiplication with a tensor that "
-                    "has energy.".format(self)
-                )
+                msg = f"Model is wrong at {self} level. An index_id cannot be normalized twice"
+                raise ValueError(msg)
+
             # if idx is not normalized, it cannot be marginalized
             if (
                 not normalized_parent_no_conv_list
                 and next(iter(parents_dict.values()))["is_marginalized"]
             ):
-                raise ValueError(
-                    "Model is wrong at {} level. An index_id should be "
-                    "normalized before marginalization".format(self)
+                msg = (
+                    f"Model is wrong at {self} level. An index_id should be "
+                    "normalized before marginalization"
                 )
+                raise ValueError(msg)
 
     def _total_energy_leak(self):
         if not self.conv_idx_ids:
@@ -357,20 +331,21 @@ class Multiplexer(_Operator):
 
     def _check_filiation_ok(self, child=None, parent=None, **kwargs):
         if parent is not None:
-            if kwargs.get("slice_for_child", None) != None:
-                raise ValueError(
-                    "`slice_for_child` argument cannot be specified when child is a {} object".format(
-                        type(self)
-                    )
+            if kwargs.get("slice_for_child", None) is not None:
+                msg = (
+                    f"`slice_for_child` argument cannot be specified when child is a {type(self)}"
+                    " object"
                 )
-            if kwargs.get("strides_for_child", None) != None:
-                raise ValueError(
-                    "`strides_for_child` argument cannot be specified when child is a {} object".format(
-                        type(self)
-                    )
+                raise ValueError(msg)
+            if kwargs.get("strides_for_child", None) is not None:
+                msg = (
+                    f"`strides_for_child` argument cannot be specified when child is a {type(self)}"
+                    " object"
                 )
+                raise ValueError(msg)
             if isinstance(parent, Proxy):
-                raise ValueError("Proxy object cannot be a parent of Multiplexer object.")
+                msg = "Proxy object cannot be a parent of Multiplexer object."
+                raise ValueError(msg)
         super()._check_filiation_ok(child=child, parent=parent, **kwargs)
 
     def _give_update(self, parent, out=None):
@@ -378,10 +353,12 @@ class Multiplexer(_Operator):
         if out is None:
             return update
         out[...] = update
+        return None
 
     def _initialization(self):
-        if len(set(parent.get_index_id_for_children(self) for parent in self.list_of_parents)) > 1:
-            raise ValueError("All parents of a multiplexer object must have the same index_id")
+        if len({parent.get_index_id_for_children(self) for parent in self.list_of_parents}) > 1:
+            msg = "All parents of a multiplexer object must have the same index_id"
+            raise ValueError(msg)
 
         multiplexer_idx_set = set(self.index_id) - set(
             self.list_of_parents[0].get_index_id_for_children(self)
@@ -409,7 +386,8 @@ class Multiplexer(_Operator):
         # if concatenation is performed along an existing axis
         elif not multiplexer_idx_set:
             if self.multiplexer_idx is None:
-                raise ValueError("Defining multiplexer_idx is mandatory in that case")
+                msg = "Defining multiplexer_idx is mandatory in that case"
+                raise ValueError(msg)
             multiplexer_idx_number = self.index_id.index(self.multiplexer_idx)
 
             # tensor definition (concatenation of parents' tensors)
@@ -418,7 +396,7 @@ class Multiplexer(_Operator):
                 axis=multiplexer_idx_number,
             )
             index_init = 0
-            for num_parent, parent in enumerate(self.list_of_parents):
+            for parent in self.list_of_parents:
                 index_end = (
                     index_init + parent.get_tensor_for_children(self).shape[multiplexer_idx_number]
                 )
@@ -430,7 +408,8 @@ class Multiplexer(_Operator):
                 )
                 index_init = index_end
         else:
-            raise ValueError("index_id problem between multiplexer object and its parents")
+            msg = "index_id problem between multiplexer object and its parents"
+            raise ValueError(msg)
 
         if self.tensor_update is None and self.update_period != 0:
             self.tensor_update = glob.xp.ones_like(self.tensor)
@@ -454,19 +433,13 @@ class Multiplexer(_Operator):
 
     def _check_model_validity(self):
         super()._check_model_validity()
-        if not all(parent.tensor_has_energy for parent in self.list_of_parents) and any(
-            parent.tensor_has_energy for parent in self.list_of_parents
-        ):
-            raise ValueError(
-                "Model is wrong at {} level. Either all the parents' tensor or "
-                "none of them should have energy.".format(self)
-            )
-        if self.multiplexer_idx is not None and not self.tensor_has_energy:
-            raise ValueError(
+        if self.multiplexer_idx is not None:
+            msg = (
                 "Problem at {} level. When `multiplexer_idx` is provided, i.e. "
                 "when a Multiplexer concatenates its parent's tensor along an "
                 "existing axis, all parents' tensor should have energy."
             )
+            raise NotImplementedError(msg)
 
 
 class Integrator(_Operator):
@@ -511,6 +484,7 @@ class Integrator(_Operator):
         if out is None:
             return self.update_to_give
         out[...] = self.update_to_give
+        return None
 
     def _initialization(self):
         self.tensor = glob.xp.empty_like(self.first_parent.get_tensor_for_children(self))
@@ -531,99 +505,9 @@ class Integrator(_Operator):
 
     def _check_model_validity(self):
         super()._check_model_validity()
-        if not self.tensor_has_energy and self.tensor.ndim - 1 not in self.norm_axis:
-            raise ValueError(
-                "Model is wrong at {} level. Parent's tensor must have energy "
-                "or its last axis must be normalized."
-            )
-
-
-class Adder(_Operator):
-    """
-    Class for Adder operator.
-
-    It aims at summing tensors of all parents into a single tensor. Allows
-    self's tensor to be manipulated with reshapes and slices before actual
-    summation (see `wonterfact.DynNodeData.new_parent` method's docstring).
-    """
-
-    def __init__(self, **kwargs):
-        self.pre_slice_dict = {}
-        self.shape_dict = {}
-        self.post_slice_dict = {}
-        super().__init__(**kwargs)
-
-    def _update_tensor(self, **kwargs):
-        self.tensor[...] = 0
-        for parent in self.list_of_parents:
-            tensor = self.apply_slice_and_shape(self.tensor, parent)
-            if not glob.xp.may_share_memory(tensor, self.tensor):
-                raise ValueError("something is wrong in the reslicing and reshaping")
-            tensor += parent.get_tensor_for_children(self)
-
-    def _give_update(self, parent, out=None):
-        update = self.apply_slice_and_shape(self.tensor_update, parent)
-        if out is None:
-            return update
-        out[...] = update
-
-    def _initialization(self):
-        if self.tensor is None:
-            if self.parent_full_shape is None:
-                raise ValueError(
-                    "Please manually instantiate a tensor for this Adder (cannot infer the proper shape)"
-                )
-            self.tensor = glob.xp.zeros_like(self.parent_full_shape.get_tensor_for_children(self))
-        self._update_tensor()
-        if self.update_period != 0:
-            self.tensor_update = glob.xp.zeros_like(self.tensor)
-
-    def _parse_kwargs_for_filiation(self, parent, **kwargs):
-        pre_slice_for_adder = kwargs.pop("pre_slice_for_adder", Ellipsis)
-        shape_for_adder = kwargs.pop("shape_for_adder", None)
-        post_slice_for_adder = kwargs.pop("post_slice_for_adder", Ellipsis)
-        try:
-            pre_slice_for_adder = tuple(pre_slice_for_adder)
-        except TypeError:
-            pass
-        try:
-            post_slice_for_adder = tuple(post_slice_for_adder)
-        except TypeError:
-            pass
-        self.pre_slice_dict[parent] = pre_slice_for_adder
-        self.shape_dict[parent] = shape_for_adder
-        self.post_slice_dict[parent] = post_slice_for_adder
-        return kwargs
-
-    def apply_slice_and_shape(self, tensor, parent):
-        tensor1 = tensor[self.pre_slice_dict[parent]]
-        if self.shape_dict[parent]:
-            tensor1 = tensor1.reshape(self.shape_dict[parent])
-        if self.post_slice_dict[parent]:
-            tensor1 = tensor1[self.post_slice_dict[parent]]
-        return tensor1
-
-    @cached_property
-    def parent_full_shape(self):
-        parent_full_shape = next(
-            (
-                parent
-                for parent in self.list_of_parents
-                if self.pre_slice_dict[parent] == Ellipsis
-                and self.post_slice_dict[parent] == Ellipsis
-                and self.shape_dict[parent] is None
-            ),
-            None,
-        )
-        return parent_full_shape
-
-    def _check_model_validity(self):
-        super()._check_model_validity()
-        if not all(parent.tensor_has_energy for parent in self.list_of_parents):
-            raise ValueError(
-                "Model is wrong at {} level. Parents' tensors of an Adder "
-                "should all have energy."
-            )
+        if self.tensor.ndim - 1 not in self.norm_axis:
+            msg = "Model is wrong at {} level. Last axis of tensor must be normalized"
+            raise ValueError(msg)
 
 
 class Smoothstep(_Operator):
@@ -653,37 +537,15 @@ class Smoothstep(_Operator):
         if out is None:
             out = glob.xp.empty_like(self.tensor)
             should_return = True
-        U0 = self.tensor_update[..., 0]
-        U1 = self.tensor_update[..., 1]
+        u0 = self.tensor_update[..., 0]
+        u1 = self.tensor_update[..., 1]
         parent_tensor = parent.get_tensor_for_children(self)
-        P0 = parent_tensor[..., 0]
-        P1 = parent_tensor[..., 1]
-        U0P0 = U0 * P0
-        U1P1 = U1 * P1
-        out[..., 0] = U0P0 * (1 + 2 * P1) + U1P1 * P1
-        out[..., 1] = U0P0 * P0 + U1P1 * (1 + 2 * P0)
+        p0 = parent_tensor[..., 0]
+        p1 = parent_tensor[..., 1]
+        u0p0 = u0 * p0
+        u1p1 = u1 * p1
+        out[..., 0] = u0p0 * (1 + 2 * p1) + u1p1 * p1
+        out[..., 1] = u0p0 * p0 + u1p1 * (1 + 2 * p0)
         if should_return:
             return out
-
-
-# class RealMultiplier(DynNodeData):
-#     def __init__(self, **kwargs):
-#         self.conv_idx_ids = kwargs.pop('conv_idx_ids', [])
-#         self.sign_id = kwargs.pop('sign_id', None)
-#         self.parent_sign_id_dict = {}
-#         super(RealMultiplier, self).__init__(**kwargs)
-
-#     def parent_sign_axis(self, parent):
-#         return parent.index_id.index(self.parent_sign_id_dict[parent])
-
-#     def _new_parent(self, parent, **kwargs):
-#         parent_sign_id = kwargs.pop('parent_sign_id', None)
-#         if parent_sign_id is None:
-#             ValueError("Please provide 'parent_sign_id' during call of create_filiation")
-#         self.parent_sign_id_dict[parent] = parent_sign_id
-
-#     def get_parent_slice(self, parent, sign_num):
-#         return [slice(None), ] * self.parent_sign_axis(parent) + [sign_num, ]
-
-#     def _update_tensor(self, **kwargs):
-#         pass
+        return None

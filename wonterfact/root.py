@@ -33,7 +33,8 @@ from tqdm import tqdm
 
 # Relative imports
 from . import buds, graphviz
-from .core_nodes import _ChildNode, _DynNodeData, _Node
+from ._core_nodes import ChildNode, DynNodeData, _Node
+from .observers import PosObserver
 from .glob_var_manager import glob
 from .leaves import LeafDirichlet
 
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-class Root(_ChildNode):
+class Root(ChildNode):
     """
     Class for root node of a wonterfact tree.
     """
@@ -212,7 +213,7 @@ class Root(_ChildNode):
         method_input = method_input or ((), {})
         type_filter_list = type_filter_list or []
         if mode == "top-down":
-            level_iter = range(0, self.level + 1)
+            level_iter = range(self.level + 1)
         elif mode == "bottom-up":
             level_iter = range(self.level, -1, -1)
         for level in level_iter:
@@ -231,9 +232,9 @@ class Root(_ChildNode):
         ):
             try:
                 node.__getattribute__(method_name)(*method_input[0], **method_input[1])
-            except Exception as exception:
-                extra_info = "\n Error raised by {} during call of '{}'".format(node, method_name)
-                raise type(exception)(str(exception) + extra_info)
+            except Exception as err:
+                msg = f"Error raised by {node} during call of '{method_name}'"
+                raise RuntimeError(msg) from err
 
     @cached_property
     def nodes_by_level(self):
@@ -269,11 +270,11 @@ class Root(_ChildNode):
             raise TypeError(msg)
         return leaf
 
-    def __getattr__(self, name):
-        if name not in self.node_ids_set:
-            msg = f"'{type(self).__name__}' object has no attribute '{name}'"
-            raise AttributeError(msg)
-        return self.nodes_by_id[name]
+    # def __getattr__(self, name):
+    #     if name not in self.node_ids_set:
+    #         msg = f"'{type(self).__name__}' object has no attribute '{name}'"
+    #         raise AttributeError(msg)
+    #     return self.nodes_by_id[name]
 
     def _first_iteration(self, check_model_validity):
         self.set_tree_inference_mode(self.inference_mode)
@@ -335,7 +336,7 @@ class Root(_ChildNode):
         if clear_cache:
             self.clear_all_nodes_cache()
         try:
-            for __ in tqdm(range(n_iter), disable=True):
+            for __ in tqdm(range(n_iter), disable=False):
                 if self.current_iter == 0:
                     self._first_iteration(check_model_validity=check_model_validity)
                 else:
@@ -620,7 +621,7 @@ class Root(_ChildNode):
         for bud in self.nodes_by_level[0]:
             if bud.update_period != 0:
                 bud.compute_tensor_update_online(learning_rate=learning_rate)
-        for __ in tqdm(range(n_iter), disable=True):
+        for __ in tqdm(range(n_iter), disable=False):
             for bud in self.nodes_by_level[0]:
                 if bud.update_period != 0:
                     bud.update_tensor()
@@ -655,7 +656,7 @@ class Root(_ChildNode):
         return sum(
             parent._total_energy_leak()
             for parent in self.census()
-            if isinstance(parent, _DynNodeData)
+            if isinstance(parent, DynNodeData)
         )
 
     def get_cost_func(self):
@@ -744,3 +745,17 @@ class Root(_ChildNode):
     def clear_all_nodes_cache(self):
         for node in self.census():
             node.clear_cache()
+
+    def simulate_data(self, multinomial_drawings):
+        self.tree_traversal(
+            "_update_tensor",
+            mode="top-down",
+            iteration_number=self.current_iter,
+            method_input=((), {"update_type": "simulate"}),
+            type_filter_list=[
+                buds.BudShape,
+            ],
+        )
+        for node in self.nodes_by_level[self.level - 1]:
+            if isinstance(node, PosObserver):
+                node.simulate_data(multinomial_drawings)

@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 
 # Relative imports
-from . import core_nodes, root, observers, operators, utils, buds
+from . import _core_nodes, root, observers, operators, utils, buds
 
 # Third-party imports
 import numpy as np
@@ -63,11 +63,6 @@ def _get_node_prefix(node, legend_dict, **extra_param):
             )
         return "(&#8741;)"
 
-    if isinstance(node, operators.Adder):
-        # return "&#43;"
-        # return "&Sigma;"
-        return "(+)"
-
     if isinstance(node, operators.Smoothstep):
         return "_/<sub><i>{}</i></sub>".format(legend_dict[node.index_id[-1]]["letter"])
 
@@ -78,9 +73,7 @@ def _get_node_prefix(node, legend_dict, **extra_param):
         return "&#8477;<sup>+</sup>"
 
     if isinstance(node, operators.Integrator):
-        return "&#8747;<sub><i>{}</i></sub>".format(
-            legend_dict[node.index_id[-1]]["letter"]
-        )
+        return "&#8747;<sub><i>{}</i></sub>".format(legend_dict[node.index_id[-1]]["letter"])
 
     if isinstance(node, operators.Proxy):
         return "(=)"
@@ -89,7 +82,7 @@ def _get_node_prefix(node, legend_dict, **extra_param):
 
 
 def _get_edge_label(node, child, legend_dict):
-    if not isinstance(node, core_nodes._DynNodeData):
+    if not isinstance(node, _core_nodes.DynNodeData):
         return None
     label = ""
     slice_for_child = node.slicing_for_children_dict[child]
@@ -116,23 +109,21 @@ def _get_edge_label(node, child, legend_dict):
             if sl != slice(None):
                 letter = legend_dict[idx]["letter"]
                 if isinstance(sl, int):
-                    label += "<i>{}</i>={};".format(letter, sl)
+                    label += f"<i>{letter}</i>={sl};"
                 elif isinstance(sl, slice):
                     start = "" if sl.start in [0, None] else sl.start
                     step = "" if sl.step in [1, None] else sl.step
                     stop = "" if sl.stop in [dim_axis, None] else sl.stop
-                    label += "<i>{}</i>={}:{}:{};".format(letter, start, stop, step)
+                    label += f"<i>{letter}</i>={start}:{stop}:{step};"
                 else:
                     label += "<i>{}</i>=["
                     label += ",".join(str(ax) for ax in sl)
                     label += "]"
         if masked_idx:
-            masked_letters = "".join(
-                [legend_dict[idx]["letter"] for idx in masked_idx[::-1]]
-            )
+            masked_letters = "".join([legend_dict[idx]["letter"] for idx in masked_idx[::-1]])
             label += "mask: " + masked_letters
     if node.strides_for_children_dict[child]:
-        label += "strides: {}".format(node.strides_for_children_dict[child])
+        label += f"strides: {node.strides_for_children_dict[child]}"
     index_id_for_child = node.get_index_id_for_children(child)
     if index_id_for_child != node.index_id:
         label_new_idx = _insert_given_symbol(
@@ -181,24 +172,21 @@ def _draw_tree(
         if letter is not None:
             used_letters.add(letter[0])
     for index_id in all_index_id:
-        if not index_id in legend_dict or "letter" not in legend_dict[index_id]:
+        if index_id not in legend_dict or "letter" not in legend_dict[index_id]:
             idx_id = index_id if isinstance(index_id, str) else ""
             idx_id2 = re.sub("[^a-z]+", "", idx_id)
             letter = next(
-                (
-                    let
-                    for let in idx_id2 + string.ascii_lowercase
-                    if let not in used_letters
-                ),
+                (let for let in idx_id2 + string.ascii_lowercase if let not in used_letters),
                 None,
             )
             if letter is None:
-                raise ValueError(
+                msg = (
                     "Not enough letters in the alphabet. Please provide"
                     "`legend_dict` with your own letters with subscripts"
                     "to represent each index_id"
                 )
-            if not index_id in legend_dict:
+                raise ValueError(msg)
+            if index_id not in legend_dict:
                 legend_dict[index_id] = {}
             legend_dict[index_id]["letter"] = letter
             used_letters.add(letter[0])
@@ -206,9 +194,7 @@ def _draw_tree(
                 legend_dict[index_id]["description"] = index_id
 
     # graph drawing
-    graph = graphviz.Digraph(
-        name=tree.name, format=fileformat, filename=filename, engine="dot"
-    )
+    graph = graphviz.Digraph(name=tree.name, format=fileformat, filename=filename, engine="dot")
     graph.attr("node", color="#0b51c3f2", fontname="Times-Roman", height="0")
     graph.attr("edge", color="#0b51c3f2", arrowhead="none", fontname="Times-Roman")
 
@@ -277,16 +263,14 @@ def _draw_tree(
         else:
             # let us compute node_label
             if not node.index_id:
-                node_label = _make_node_label(
-                    "", "&middot;", underline=node.tensor_has_energy
-                )
+                node_label = _make_node_label("", "&middot;", underline=False)
             else:
-                if node.tensor_has_energy or node.level == 0:
+                if node.level == 0:
                     index_label = "".join(
                         [legend_dict[idx]["letter"] for idx in node.index_id[::-1]]
                     )
                     index_label = _italic(index_label)
-                    underline = node.tensor_has_energy
+                    underline = False
                 else:
                     index_label = _insert_given_symbol(
                         node.index_id, node.norm_axis, node.tensor.ndim, legend_dict
@@ -440,9 +424,7 @@ def _insert_given_symbol(index_id, norm_axis, ndim, legend_dict):
         ] + [idx for num_idx, idx in enumerate(index_id) if num_idx in norm_axis]
     index_label = "".join([legend_dict[idx]["letter"] for idx in index_id_list[::-1]])
     if len_norm < len(index_id_list):
-        index_label = (
-            _italic(index_label[:len_norm]) + " |" + _italic(index_label[len_norm:])
-        )
+        index_label = _italic(index_label[:len_norm]) + " |" + _italic(index_label[len_norm:])
     else:
         index_label = _italic(index_label)
     if len_norm == 0:

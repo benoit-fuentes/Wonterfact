@@ -24,11 +24,11 @@
 # Third-party imports
 
 # Relative imports
-from . import utils, core_nodes
+from . import _core_nodes, utils
 from .glob_var_manager import glob
 
 
-class BudShape(core_nodes._DynNodeData0):
+class BudShape(_core_nodes.DynNodeData0):
     """
     Mother class for the hyperparameters buds of a graphical model
     """
@@ -51,10 +51,11 @@ class BudShape(core_nodes._DynNodeData0):
     def _check_model_validity(self):
         super()._check_model_validity()
         if not self.are_all_tensor_coefs_linked_to_at_least_one_child:
-            raise ValueError(
-                "Model invalid at {} level. Please make sure that each"
-                "hyperparameters is linked to at least one child.".format(self)
+            msg = (
+                f"Model invalid at {self} level. Please make sure that each hyperparameters is "
+                "linked to at least one child."
             )
+            raise ValueError(msg)
 
     def _first_iteration(self):
         # this one is for e_d or m_e (cf technical report)
@@ -87,10 +88,6 @@ class BudShape(core_nodes._DynNodeData0):
         self.compute_tensor_update()  # new values in self.tensor_update
         self.tensor_update *= learning_rate
         self.tensor_update += past_tensor_update
-
-    @property
-    def tensor_has_energy(self):
-        return False
 
     def update_tensor(self):
         # tensor_update_bis corresponds to the prior hyperparamters

@@ -36,9 +36,7 @@ def make_nmf(fix_atoms=False, dim_k=5, dim_f=20, dim_t=100):
 
     activations_tk = npr.gamma(shape=0.6, scale=200, size=(dim_t, dim_k))
     for kk in range(dim_k):
-        activations_tk[:, kk] = np.convolve(
-            activations_tk[:, kk], np.ones(4), mode="same"
-        )
+        activations_tk[:, kk] = np.convolve(activations_tk[:, kk], np.ones(4), mode="same")
 
     observations_tf = np.einsum("tk,kf->tf", activations_tk, atoms_kf)
     observations_tf += npr.randn(dim_t, dim_f) * 1e-4
@@ -51,8 +49,9 @@ def make_nmf(fix_atoms=False, dim_k=5, dim_f=20, dim_t=100):
         update_period=0 if fix_atoms else 1,
         prior_shape=1,
     )
-    leaf_tk = wtf.LeafGamma(
+    leaf_tk = wtf.LeafDirichlet(
         name="activations",
+        norm_axis=(0, 1),
         index_id="tk",
         tensor=np.ones_like(activations_tk),
         prior_rate=1e-5,

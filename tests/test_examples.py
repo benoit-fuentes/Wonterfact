@@ -20,19 +20,16 @@
 """Tests for all examples in the wonterfact/examples directory"""
 
 # Python standard library
-from itertools import product
 
-# Third-party imports
-import pytest
 import numpy as np
 import numpy.random as npr
 
+# Third-party imports
+import pytest
+
 # wonterfact and relative imports
-from wonterfact import glob, LeafGammaNorm
-from wonterfact import utils as wtfu
-from wonterfact.examples import snmf
-from wonterfact.examples import nmf
-from wonterfact.examples import conv_nmf
+from wonterfact import glob
+from wonterfact.examples import conv_nmf, nmf
 
 # relative imports
 from . import utils as t_utils
@@ -50,16 +47,10 @@ list_of_tree_makers_tuple = [
     (nmf.make_sparse_nmf, (), {}),
     (nmf.make_sparse_nmf2, (), {}),
     (nmf.make_sparse_nmf3, (), {}),
-    (snmf.make_snmf, (data, atoms_nonneg_init, activations_init), {"fix_atoms": True}),
-    (snmf.make_snmf, (data, atoms_nonneg_init, activations_init), {"fix_atoms": False}),
-    (snmf.make_cluster_snmf, (), {}),
-    (snmf.make_cluster_snmf2, (), {}),
     (conv_nmf.make_deconv_tree, (), {}),
 ]
 # let us add unique_id to the tuples
-list_of_tree_makers_tuple = [
-    elem + (num,) for num, elem in enumerate(list_of_tree_makers_tuple)
-]
+list_of_tree_makers_tuple = [elem + (num,) for num, elem in enumerate(list_of_tree_makers_tuple)]
 
 
 @pytest.fixture(scope="module")
@@ -91,10 +82,6 @@ def test_example(
         limit_skellam=limit_skellam,
     )
     if inference_mode == "VBEM":
-        if any(type(node) == LeafGammaNorm for node in tree.census()):
-            with pytest.raises(NotImplementedError):
-                tree.estimate_param(n_iter=100)
-            return
         for ii in range(10):
             tree.estimate_param(n_iter=10)
             tree.estimate_hyperparam(n_iter=ii)
@@ -110,10 +97,7 @@ def test_example(
     )
 
     cost_record_results[base_key + (backend,)] = np.array(tree.cost_record)
-    if (
-        base_key + ("cpu",) in cost_record_results
-        and base_key + ("gpu",) in cost_record_results
-    ):
+    if base_key + ("cpu",) in cost_record_results and base_key + ("gpu",) in cost_record_results:
         assert np.allclose(
             cost_record_results[base_key + ("cpu",)],
             cost_record_results[base_key + ("gpu",)],

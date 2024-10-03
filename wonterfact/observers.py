@@ -19,24 +19,29 @@
 
 """Module for all observer classes"""
 
-
-# Python System imports
-
-# Third-party imports
 from functools import cached_property
 
+from numpy.random import default_rng
+import scipy.stats as scs
 
-# Relative imports
-from . import utils, core_nodes
+
+from . import _core_nodes, utils
 from .glob_var_manager import glob
 
 
-class PosObserver(
-    core_nodes._NodeData, core_nodes._ChildNode
-):  # TODO: optimize mask_data
+class _Observer(_core_nodes.ChildNode):
+    def norm_axis(self):
+        parent = self.first_parent
+        assert isinstance(parent, _core_nodes.DynNodeData)
+        return parent.get_index_id_for_children(self)
+
+
+class PosObserver(_core_nodes.NodeData, _Observer):  # TODO: optimize mask_data
     """
     Class for nonnegative observations.
     """
+
+    max_parents = 1
 
     def __init__(self, **kwargs):
         """
@@ -116,17 +121,10 @@ class PosObserver(
         if self.mask_data is not None:
             tensor_update[self.mask_data] = 1
 
-    @property
-    def tensor_has_energy(self):
-        return False
-
     def _give_update(self, parent, out=None):
         parent_tensor = parent.get_tensor_for_children(self)
 
-        if out is None:
-            tensor_update = glob.xp.empty_like(self.tensor)
-        else:
-            tensor_update = out
+        tensor_update = glob.xp.empty_like(self.tensor) if out is None else out
 
         denominator = parent_tensor + self.is_tensor_null
         if self._inference_mode == "VBEM":
@@ -141,9 +139,7 @@ class PosObserver(
         return tensor_update
 
     def get_current_reconstruction(self, parent, force_numpy=False):
-        tensor_to_give = (
-            parent.get_tensor_for_children(self) / self.get_current_mult_factor()
-        )
+        tensor_to_give = parent.get_tensor_for_children(self) / self.get_current_mult_factor()
         if force_numpy and utils.infer_backend(tensor_to_give) == glob.CUPY:
             return glob.xp.asnumpy(tensor_to_give)
         return tensor_to_give
@@ -176,11 +172,21 @@ class PosObserver(
             raise NotImplementedError
         return -lh.sum().item() - glob.sps.gammaln(self.number_of_drawings + 1).sum()
 
+    def simulate_data(self, n_drawings):
+        parent = self.first_parent
+        assert isinstance(parent, _core_nodes.DynNodeData)
+        parent_tensor = parent.get_tensor_for_children(self)
+        shape_for_multinomial = (
+            *(size for ii, size in enumerate(self.tensor.shape) if ii not in self.norm_axis),
+            -1,
+        )
+        rng = default_rng()
+        self.tensor[...] = rng.multinomial(
+            n_drawings, parent_tensor.reshape(shape_for_multinomial)
+        ).reshape(self.tensor.shape)
 
-class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
 
+class BlindObs(_Observer, _core_nodes.ParentNode):
     def _give_update(self, parent, out=None):
         if out is None:
             return glob.xp.ones_like(parent.get_tensor_for_children(self))
@@ -191,8 +197,10 @@ class BlindObs(core_nodes._ChildNode, core_nodes._ParentNode):
     def _get_data_fitting(self):
         if self._inference_mode in ("EM", "VB-MCMC"):
             return 0
-        elif self._inference_mode == "VBEM":
+        if self._inference_mode == "VBEM":
             total_energy = 0
             for parent in self.list_of_parents:
                 total_energy += parent.get_tensor_for_children(self).sum()
             return -total_energy.item()
+        msg = "unknown inference mode"
+        raise AttributeError(msg)

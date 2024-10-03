@@ -44,9 +44,7 @@ def prepare_for_numpy_einsum(args):
     return [args[0], sub0, args[2], sub1, subout]
 
 
-@pytest.fixture(
-    scope="module", params=["cpu", pytest.param("gpu", marks=pytest.mark.gpu)]
-)
+@pytest.fixture(scope="module", params=["cpu", pytest.param("gpu", marks=pytest.mark.gpu)])
 def backend_and_operations_as_list(request):
     """
     Returns a list of (op0, sub0, op1, sub1, out, subout)
@@ -111,9 +109,7 @@ def test_has_a_shared_sublist():
     assert utils._has_a_shared_sublist([], [1, 2, 3])
     assert utils._has_a_shared_sublist([1, 2, 3, 4], [2, 5, 3])
     assert not utils._has_a_shared_sublist([1, 2, 3, 4], [0, 3, 2])
-    assert not utils._has_a_shared_sublist(
-        [1, 2, 3, 4], [1, 2, 5, 6, 7, 8, 5, 76, 4, 3]
-    )
+    assert not utils._has_a_shared_sublist([1, 2, 3, 4], [1, 2, 5, 6, 7, 8, 5, 76, 4, 3])
 
 
 def test_get_transpose_and_slice():
@@ -244,9 +240,7 @@ def test_sequential_tensor_dot(xp):
         new_sub_out,
         out_shape,
     )
-    assert xp.allclose(
-        out, xp.einsum("{},{}->{}".format(sub1, sub2, sub_out), op1, op2)
-    )
+    assert xp.allclose(out, xp.einsum("{},{}->{}".format(sub1, sub2, sub_out), op1, op2))
 
 
 def test_parse_einsum_two_operands_input(operations_as_list, xp):
@@ -323,9 +317,7 @@ def test_element_wise_mult_and_sum(xp):
             slice1,
             sum_axis,
         )
-        assert xp.allclose(
-            out, xp.einsum("{},{}->{}".format(sub1, sub2, sub_out), op1, op2)
-        )
+        assert xp.allclose(out, xp.einsum("{},{}->{}".format(sub1, sub2, sub_out), op1, op2))
     else:
         assert True
 
@@ -440,7 +432,7 @@ def test_find_equality_root(xp):
     const_coef = xp.array([1, -1])
     arr[:, :, :1] = 200
     norm_arr = arr.sum(2, keepdims=True)
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
     assert xp.allclose(sigma, 0)
@@ -449,7 +441,7 @@ def test_find_equality_root(xp):
     # inequality constraint should be binding
     arr[:, :, :1] = 50
     norm_arr = arr.sum(2, keepdims=True)
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
     assert xp.allclose(((arr / (norm_arr - sigma * const_coef)) * const_coef).sum(2), 0)
@@ -458,7 +450,7 @@ def test_find_equality_root(xp):
     # force equality constraint
     arr[:, :, :1] = 200
     norm_arr = arr.sum(2, keepdims=True)
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="equality", backend=backend
     )
     assert np.allclose(((arr / (norm_arr - sigma * const_coef)) * const_coef).sum(2), 0)
@@ -469,7 +461,7 @@ def test_find_equality_root(xp):
     const_coef[:, 1] = -1
     arr[:, :, 0] = 200
     norm_arr = arr.sum((1, 2), keepdims=True)
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
     assert xp.allclose(sigma, 0)
@@ -477,12 +469,10 @@ def test_find_equality_root(xp):
     # inequality constraint should be binding
     arr[:, :, 0] = 50
     norm_arr = arr.sum((1, 2), keepdims=True)
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
-    assert xp.allclose(
-        ((arr / (norm_arr - sigma * const_coef)) * const_coef).sum((1, 2)), 0
-    )
+    assert xp.allclose(((arr / (norm_arr - sigma * const_coef)) * const_coef).sum((1, 2)), 0)
     assert xp.allclose((arr / (norm_arr - sigma * const_coef)).sum((1, 2)), 1.0)
 
     # when no normalization
@@ -490,13 +480,13 @@ def test_find_equality_root(xp):
     const_coef = xp.ones((2, 2, 2))
     const_coef[:, :, 1] = -1
     arr[:, :, 0] = 200
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
     assert xp.allclose(sigma, 0)
 
     arr[:, :, 0] = 50
-    sigma = utils._find_equality_root(
+    sigma = utils.find_equality_root(
         arr, norm_arr, const_coef, max_iter, type="inequality", backend=backend
     )
     assert xp.allclose(((arr / (norm_arr - sigma * const_coef)) * const_coef).sum(), 0)
@@ -581,9 +571,7 @@ def test_bessel_ratio(xp):
 
     arr1 = xp.array([2.0, 1e-8, 1e2])
     arr2 = xp.array([3.0, 2e-8, 2e2])
-    assert xp.allclose(
-        utils.bessel_ratio(arr1, arr2), arr2 * iv(arr1 + 1, arr2) / iv(arr1, arr2)
-    )
+    assert xp.allclose(utils.bessel_ratio(arr1, arr2), arr2 * iv(arr1 + 1, arr2) / iv(arr1, arr2))
     arr2[...] = 0.0
     assert xp.allclose(utils.bessel_ratio(arr1, arr2), 0)
 
@@ -654,9 +642,7 @@ def test_real_to_2D_nonnegative():
 
 
 def test_complex_to_2D_real():
-    arr = np.array([[1, -1, 2], [-3, 3.2, 0]]) + 1j * np.array(
-        [[3, 1, -2], [3, 0, -1.1]]
-    )
+    arr = np.array([[1, -1, 2], [-3, 3.2, 0]]) + 1j * np.array([[3, 1, -2], [3, 0, -1.1]])
     arr_real = utils.complex_to_2D_real(arr)
     assert arr_real.shape == arr.shape + (2,)
     assert np.allclose(arr_real[..., 0], arr.real)
@@ -664,9 +650,7 @@ def test_complex_to_2D_real():
 
 
 def test_complex_to_4D_nonnegative():
-    arr = np.array([[1, -1, 2], [-3, 3.2, 0]]) + 1j * np.array(
-        [[3, 1, -2], [3, 0, -1.1]]
-    )
+    arr = np.array([[1, -1, 2], [-3, 3.2, 0]]) + 1j * np.array([[3, 1, -2], [3, 0, -1.1]])
     arr_real = utils.complex_to_4D_nonnegative(arr)
     assert arr_real.shape == arr.shape + (2, 2)
     assert np.allclose(arr_real[..., 0, 0], arr.real.clip(min=0))

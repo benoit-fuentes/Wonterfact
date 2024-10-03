@@ -27,13 +27,13 @@
 
 # Relative imports
 from . import utils
-from .utils import create_filiation
-from .root import Root
-from .leaves import LeafDirichlet
-from .operators import Multiplier, Multiplexer, Integrator, Adder, Proxy, Smoothstep
-from .observers import PosObserver, BlindObs
 from .buds import BudShape
 from .glob_var_manager import glob
+from .leaves import LeafDirichlet
+from .observers import BlindObs, PosObserver
+from .operators import Integrator, Multiplexer, Multiplier, Proxy, Smoothstep
+from .root import Root
+from .utils import create_filiation
 
 # Django imports only if possible.
 
@@ -47,7 +47,6 @@ __all__ = [
     "Root",
     "Integrator",
     "Smoothstep",
-    "Adder",
     "Proxy",
     "BlindObs",
     "LeafGammaNorm",

@@ -20,37 +20,35 @@
 """Module for useful methods used in wonterfact"""
 
 # Python System imports
-import sys
-import math
-from itertools import product
-import inspect
-from functools import wraps, lru_cache
-
 # Third-party imports
-import functools as cached_p
-from numba import jit, vectorize
+import inspect
+import math
+from functools import lru_cache, wraps
+from itertools import product
+
 import numpy as np
-from numpy.lib.stride_tricks import as_strided
 import opt_einsum
 import scipy.special as sps
+from numba import jit
+from numpy.lib.stride_tricks import as_strided
 
 
 class BackendSpecific:
     @staticmethod
     def raise_backend_error(backend):
-        raise ValueError("Unknown backend '{}'".format(backend))
+        msg = f"Unknown backend '{backend}'"
+        raise ValueError(msg)
 
     @staticmethod
     @lru_cache(maxsize=16)
     def back(backend):
         if backend == "numpy":
             return np
-        elif backend == "cupy":
+        if backend == "cupy":
             import cupy  # pylint: disable=import-error
-            
+
             return cupy
-        else:
-            BackendSpecific.raise_backend_error(backend)
+        BackendSpecific.raise_backend_error(backend)
 
     @staticmethod
     @lru_cache(maxsize=16)
@@ -82,9 +80,7 @@ class BackendSpecific:
             def cumsum_last_axis_cupy(arr, out):
                 size_cumsum = arr.shape[-1]
                 arr = arr.reshape((-1, size_cumsum))
-                max_threads = self.get_cupy_utils(backend).find_cumsum_max_threads(
-                    *arr.shape
-                )
+                max_threads = self.get_cupy_utils(backend).find_cumsum_max_threads(*arr.shape)
                 self.get_cupy_utils(backend).cupy_cumsum_2d(
                     arr, out.reshape(arr.shape), max_threads=max_threads
                 )
@@ -96,7 +92,6 @@ class BackendSpecific:
     @staticmethod
     @lru_cache(maxsize=16)
     def get_cupy_utils(backend):
-
         if backend == "numpy":
             raise NotImplementedError
 
@@ -155,11 +150,7 @@ def cupy_alternative(infer_backend_from):
         @wraps(numpy_func)
         def method_call(*args, backend=None, **kwargs):
             array_level = func_args.index(infer_backend_from)
-            array = (
-                args[array_level]
-                if array_level < len(args)
-                else kwargs.get(infer_backend_from)
-            )
+            array = args[array_level] if array_level < len(args) else kwargs.get(infer_backend_from)
             backend = backend or infer_backend(array)
             func_to_execute = (
                 numpy_func
@@ -263,9 +254,7 @@ def _parse_einsum_args(*args):
         args2 = list(args)
     # change all hashable idx to int
     size_args = len(args2)
-    idx_set = set.union(
-        *(set(args2[ii]) for ii in range(1, size_args, 2)), set(args2[-1])
-    )
+    idx_set = set.union(*(set(args2[ii]) for ii in range(1, size_args, 2)), set(args2[-1]))
     idx_to_int = {idx: num for num, idx in enumerate(idx_set)}
     for ii in list(range(1, size_args, 2)) + [
         -1,
@@ -322,9 +311,7 @@ def _regular_einsum(op1, sub1, op2, sub2, out, sub_out, backend):
         return opt_einsum.contract(op1, sub1, op2, sub2, sub_out, backend=backend)
     else:
         if backend == "cupy" or out.ndim == 0:
-            out[...] = opt_einsum.contract(
-                op1, sub1, op2, sub2, sub_out, backend=backend
-            )
+            out[...] = opt_einsum.contract(op1, sub1, op2, sub2, sub_out, backend=backend)
         else:
             opt_einsum.contract(op1, sub1, op2, sub2, sub_out, backend=backend, out=out)
         return out
@@ -350,9 +337,7 @@ def _sequential_tensor_dot(
     if out is None:
         out = xp_utils.back(backend).empty(out_shape, dtype=op1.dtype)
 
-    for slice_out, slice_1, slice_2 in zip(
-        list_of_slice_out, list_of_slice_1, list_of_slice_2
-    ):
+    for slice_out, slice_1, slice_2 in zip(list_of_slice_out, list_of_slice_1, list_of_slice_2):
         out[slice_out] = _einsum_as_dot(
             op1[slice_1], new_sub1, op2[slice_2], new_sub2, new_sub_out, backend
         )
@@ -374,9 +359,7 @@ def _parse_einsum_two_operands_input(shape_1, sub1, shape_2, sub2, sub_out, back
     set_out = set(sub_out)
 
     no_duplication_idx = (
-        len(set1) == len(sub1)
-        and len(set2) == len(sub2)
-        and len(set_out) == len(sub_out)
+        len(set1) == len(sub1) and len(set2) == len(sub2) and len(set_out) == len(sub_out)
     )
 
     # Is it a simple multiplication ?
@@ -395,11 +378,7 @@ def _parse_einsum_two_operands_input(shape_1, sub1, shape_2, sub2, sub_out, back
     # Is it a multiplication and then a reduction (with no extra dimension)?
     # (only interesting if backend is cupy due to poor perf of cupy.einsum)
     # let's  suppose set1 is smaller than set2
-    if (
-        (set1.issubset(set2) or set2.issubset(set1))
-        and no_duplication_idx
-        and backend == "cupy"
-    ):
+    if (set1.issubset(set2) or set2.issubset(set1)) and no_duplication_idx and backend == "cupy":
         switch_operand = False
         if len(set1) > len(set2):
             shape_1, sub1, shape_2, sub2 = shape_2, sub2, shape_1, sub1
@@ -554,7 +533,7 @@ def einconv(
     conv_idx_list=None,
     backend=None,
     compute_correlation=False,
-    **kwargs
+    **kwargs,
 ):
     """
     A upgraded version of einsum for two operands operations that can also
@@ -596,9 +575,7 @@ def einconv(
     kwargs["backend"] = backend
     conv_idx_list = conv_idx_list or []
     if conv_idx_list == []:
-        return einsum(
-            operand0, sublist0, operand1, sublist1, sublistout, *args, **kwargs
-        )
+        return einsum(operand0, sublist0, operand1, sublist1, sublistout, *args, **kwargs)
 
     slice_direction = 1 if compute_correlation else -1
     sub_list = [list(sublist0), list(sublist1)]
@@ -610,9 +587,11 @@ def einconv(
         size_list = [op.shape[num_dim] for op, num_dim in zip(op_list, num_dim_list)]
         if size_list[0] < size_list[1]:
             if num > 0:
-                raise ValueError(
-                    "Either operand0 or operand1 must be at least as large as the other in every dimension where convolution is performed"
+                msg = (
+                    "Either operand0 or operand1 must be at least as large as the other in every "
+                    "dimension where convolution is performed"
                 )
+                raise ValueError(msg)
             for elem in [num_dim_list, size_list, op_list, sub_list]:
                 elem.reverse()
         size_out = size_list[0] - size_list[1] + 1
@@ -636,15 +615,15 @@ def einconv(
         tuple_of_slices = (slice(None),) * (num_dim_list[0] + 1) + (
             slice(None, None, slice_direction),
         )
-        op_list[0] = xp_utils.as_strided(backend)(
-            op_list[0], shape=shape, strides=strides
-        )[tuple_of_slices]
+        op_list[0] = xp_utils.as_strided(backend)(op_list[0], shape=shape, strides=strides)[
+            tuple_of_slices
+        ]
 
     return einsum(
         *[elem for tuple_of_elem in zip(op_list, sub_list) for elem in tuple_of_elem],
         sublistout,
         *args,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -655,7 +634,7 @@ def _make_unique_hashable(forbidden_set):
     return ii
 
 
-def _find_equality_root(
+def find_equality_root(
     input_array,
     input_denominator,
     const_coef,
@@ -692,13 +671,10 @@ def _find_equality_root(
 
     degree = const_coef.size
     sum_axis = tuple(range(input_array.ndim - const_coef.ndim, input_array.ndim))
-    flag_shape = tuple(
-        input_array.shape[ii] for ii in range(0, input_array.ndim - const_coef.ndim)
-    )
+    flag_shape = tuple(input_array.shape[ii] for ii in range(input_array.ndim - const_coef.ndim))
     sum_axis_flag = tuple(range(1, 1 + const_coef.ndim))
     shape_sigma = (
-        input_array.shape[slice(input_array.ndim - const_coef.ndim)]
-        + (1,) * const_coef.ndim
+        input_array.shape[slice(input_array.ndim - const_coef.ndim)] + (1,) * const_coef.ndim
     )
     proj = (input_array * const_coef).sum(axis=sum_axis, keepdims=True)
     sigma = xp_utils.back(backend).zeros(shape_sigma, dtype=input_array.dtype)
@@ -708,36 +684,32 @@ def _find_equality_root(
     elif type == "equality":
         flag = xp_utils.back(backend).ones(flag_shape, dtype=bool)
     else:
-        raise ValueError("Argument 'type' must be 'equality' or 'inequality'")
+        msg = "Argument 'type' must be 'equality' or 'inequality'"
+        raise ValueError(msg)
 
     for __ in range(max_iter):
         if not flag.any():
             break
         sigma_flag = sigma[flag]
-        if denominator_full_size:
-            den_array_flag = input_denominator[flag]
-        else:
-            den_array_flag = input_denominator
+        den_array_flag = input_denominator[flag] if denominator_full_size else input_denominator
         input_array_flag = input_array[flag]
         temp1 = const_coef / (den_array_flag - sigma_flag * const_coef)
-        S1 = temp1.sum(axis=sum_axis_flag, keepdims=True)
+        s1 = temp1.sum(axis=sum_axis_flag, keepdims=True)
         temp2 = temp1 * input_array_flag
-        S2 = temp2.sum(axis=sum_axis_flag, keepdims=True)
+        s2 = temp2.sum(axis=sum_axis_flag, keepdims=True)
         temp3 = temp2 * temp1
-        S3 = temp3.sum(axis=sum_axis_flag, keepdims=True)
-        S4 = (temp1 ** 2).sum(axis=sum_axis_flag, keepdims=True)
-        S5 = (temp3 * temp1).sum(axis=sum_axis_flag, keepdims=True)
+        s3 = temp3.sum(axis=sum_axis_flag, keepdims=True)
+        s4 = (temp1**2).sum(axis=sum_axis_flag, keepdims=True)
+        s5 = (temp3 * temp1).sum(axis=sum_axis_flag, keepdims=True)
 
-        H1 = -S1 * S2 + S3
-        H2 = -S4 * (S2 ** 2) + 2 * S2 * S5 - S3 ** 2
-        H3 = ((1 - degree) * (degree * H2 + H1 ** 2)) ** 0.5
+        h1 = -s1 * s2 + s3
+        h2 = -s4 * (s2**2) + 2 * s2 * s5 - s3**2
+        h3 = ((1 - degree) * (degree * h2 + h1**2)) ** 0.5
 
-        new_sigma = sigma_flag - degree * S2 / (
-            H1 + xp_utils.back(backend).sign(H1) * H3
-        )
+        new_sigma = sigma_flag - degree * s2 / (h1 + xp_utils.back(backend).sign(h1) * h3)
         sigma[flag] = new_sigma
         flag[flag] = flag[flag] & xp_utils.back(backend).atleast_1d(
-            ~xp_utils.back(backend).isclose(S2, 0, atol=atol).squeeze()
+            ~xp_utils.back(backend).isclose(s2, 0, atol=atol).squeeze()
         )
     if extra_dim:
         sigma = sigma[0]
@@ -823,7 +795,7 @@ def scalar_compatible(*arg_names):
                     kwargs[arg_name] = arg_value
             output_arr = func(*args, **kwargs)
             if output_arr is None:
-                return
+                return None
             if isscalar:
                 return output_arr[0]
             if ndim == 0:
@@ -869,7 +841,7 @@ def exp_digamma(input_arr):  # TODO: allow greater order, with tolerance stop
             input_plus_n -= 0.5
             output_arr[index] = input_plus_n
             temp = input_plus_n
-            input_plus_n = input_plus_n ** 2
+            input_plus_n = input_plus_n**2
 
             for ind_coef in range(order):
                 temp /= input_plus_n
@@ -1059,9 +1031,7 @@ def real_to_2D_nonnegative(input_array):
     """
     output_array = np.expand_dims(input_array, -1)
     output_array = np.abs(
-        np.concatenate(
-            (np.maximum(output_array, 0), np.maximum(-output_array, 0)), axis=-1
-        )
+        np.concatenate((np.maximum(output_array, 0), np.maximum(-output_array, 0)), axis=-1)
     )
     return output_array
 
@@ -1142,9 +1112,9 @@ def inverse_digamma(input_arr, num_iter=5, backend=None, out=None):
     # do Newton update here
     order = xp.array(1)
     for __ in range(num_iter):
-        output_arr -= (
-            xp_utils.digamma(backend)(output_arr) - input_arr
-        ) / xp_utils.polygamma(backend)(order, output_arr)
+        output_arr -= (xp_utils.digamma(backend)(output_arr) - input_arr) / xp_utils.polygamma(
+            backend
+        )(order, output_arr)
 
     if out is None:
         return output_arr
