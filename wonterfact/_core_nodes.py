@@ -27,6 +27,7 @@ from functools import cached_property
 
 # Third-party imports
 import numpy as np
+import numpy.typing as npt
 from baseconv import base62
 from custom_inherit import DocInheritMeta
 from methodtools import _LruCacheWire, lru_cache  # allows cache decorator per instance
@@ -349,7 +350,7 @@ class NodeData(ParentNode):
         return self.cast_array(self.tensor, force_numpy=force_numpy)
 
     @property
-    def tensor_as_numpy(self):
+    def tensor_as_numpy(self) -> npt.NDArray:
         return self.get_tensor(force_numpy=True)
 
     def getattr_as_numpy(self, attr):

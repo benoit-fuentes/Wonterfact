@@ -308,6 +308,7 @@ class Root(ChildNode):
         check_model_validity=True,
         clear_cache=True,
         callback: Callable[[Root], None] | None = None,
+        show_tqdm: bool = False,
     ):
         """
         Run parameters estimation algorithm.
@@ -336,7 +337,7 @@ class Root(ChildNode):
         if clear_cache:
             self.clear_all_nodes_cache()
         try:
-            for __ in tqdm(range(n_iter), disable=False):
+            for __ in tqdm(range(n_iter), disable=not show_tqdm):
                 if self.current_iter == 0:
                     self._first_iteration(check_model_validity=check_model_validity)
                 else:
@@ -591,7 +592,9 @@ class Root(ChildNode):
             self.parab_acc_state.update({"standard_update": True, "consec_std_update": 0})
         self.need_a_bump = False
 
-    def estimate_hyperparam(self, n_iter, learning_rate=1.0, clear_cache=True):
+    def estimate_hyperparam(
+        self, n_iter, learning_rate=1.0, clear_cache=True, show_tqdm: bool = False
+    ):
         """
         Run hyperparameters estimation algorithm.
 
@@ -621,7 +624,7 @@ class Root(ChildNode):
         for bud in self.nodes_by_level[0]:
             if bud.update_period != 0:
                 bud.compute_tensor_update_online(learning_rate=learning_rate)
-        for __ in tqdm(range(n_iter), disable=False):
+        for __ in tqdm(range(n_iter), disable=not show_tqdm):
             for bud in self.nodes_by_level[0]:
                 if bud.update_period != 0:
                     bud.update_tensor()

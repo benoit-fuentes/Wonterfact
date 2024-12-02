@@ -38,7 +38,7 @@ class LeafDirichlet(_core_nodes.DynNodeData, _core_nodes.ChildNode):
 
     def __init__(
         self,
-        norm_axis: tuple[int] = (0,),
+        norm_axis: tuple[int, ...] = (0,),
         brake: None | float = None,
         inertia: float = 0,
         variance_factor: float = 1.0,
@@ -238,7 +238,7 @@ class LeafDirichlet(_core_nodes.DynNodeData, _core_nodes.ChildNode):
             tensor_update = tensor_update + self.brake
 
         if self.variance_factor not in [0.0, 1.0]:
-            tensor_update /= self.variance_factor
+            tensor_update = tensor_update / self.variance_factor
 
         if self._inference_mode == "EM":
             self.tensor *= tensor_update
@@ -251,8 +251,8 @@ class LeafDirichlet(_core_nodes.DynNodeData, _core_nodes.ChildNode):
             # self.tensor += self.prior_shape
             self._clip_tensor_min_value()
             if self.variance_factor != 0:
-                self.tensor[...] = glob.xp.random.gamma(self.tensor, 1)
-                self._clip_tensor_min_value()
+                self.tensor[...] = glob.xp.random.gamma(self.tensor, 1) + 1e-20
+                # self._clip_tensor_min_value()
 
         if self._inference_mode == "VBEM":
             self.tensor *= tensor_update
